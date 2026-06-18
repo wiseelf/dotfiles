@@ -1,0 +1,1 @@
+setopt NUMERIC_GLOB_SORT
