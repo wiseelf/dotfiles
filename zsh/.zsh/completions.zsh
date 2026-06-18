@@ -32,6 +32,3 @@ unset _cache_dir
 
 # Case-insensitive / partial matching
 zstyle ':completion:*' matcher-list 'r:|=*' 'l:|=* r:|=*'
-
-# Don't suggest _* completion functions as command candidates
-zstyle ':completion:*:*:-command-:*:*' ignored-patterns '_*'
