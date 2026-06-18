@@ -9,12 +9,15 @@ SHOW_AWS_PROMPT=false
 AWS_PROFILE_STATE_ENABLED=false
 
 # --- antidote plugin manager (static bundle, zero runtime cost) ---------------
-if (( $+commands[antidote] )); then
-  source "$(antidote home 2>/dev/null)/antidote.zsh" 2>/dev/null \
-    || source "$(brew --prefix 2>/dev/null)/share/antidote/antidote.zsh" 2>/dev/null
+_antidote_brew="$(brew --prefix 2>/dev/null)/share/antidote/antidote.zsh"
+if [[ -f $_antidote_brew ]]; then
+  source $_antidote_brew
+elif (( $+commands[antidote] )); then
+  source "$(antidote home)/antidote.zsh"
 elif [[ -d ${ZDOTDIR:-$HOME}/.antidote ]]; then
   source "${ZDOTDIR:-$HOME}/.antidote/antidote.zsh"
 fi
+unset _antidote_brew
 
 if (( $+functions[antidote] )); then
   zsh_plugins=${ZDOTDIR:-$HOME}/.zsh_plugins.zsh
