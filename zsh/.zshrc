@@ -40,7 +40,7 @@ unset _zcompdump
 
 # --- modular config -----------------------------------------------------------
 ZSH_CONF_DIR=${ZDOTDIR:-$HOME}/.zsh
-for _f in exports history keybindings completions aliases functions prompt syntax-highlighting; do
+for _f in exports history keybindings shell completions aliases functions prompt syntax-highlighting; do
   [[ -r $ZSH_CONF_DIR/$_f.zsh ]] && source $ZSH_CONF_DIR/$_f.zsh
 done
 unset _f ZSH_CONF_DIR
