@@ -78,7 +78,7 @@ install_patina_linux() {
     | grep '"browser_download_url"' \
     | grep "${arch}-unknown-linux-musl\.tar\.gz" \
     | grep -o 'https://[^"]*' | head -1)
-  if [[ -n $asset_url ]] && curl -fsSL "$asset_url" | tar -xz -C "$bin_dir" zsh-patina 2>/dev/null; then
+  if [[ -n $asset_url ]] && curl -fsSL "$asset_url" | tar -xz --strip-components=1 -C "$bin_dir" --wildcards '*/zsh-patina' 2>/dev/null; then
     chmod +x "$bin_dir/zsh-patina"
     log "zsh-patina installed to $bin_dir"
   elif have cargo; then
@@ -93,6 +93,15 @@ stow_packages() {
   local dir=$1; shift
   [[ -d $dir ]] || { warn "skip stow: $dir not found"; return; }
   log "stow $(basename $dir): $*"
+  # Back up any plain files that would conflict with stow symlinks
+  local conflicts
+  conflicts=$(cd "$dir" && stow --no-folding --target="$HOME" --simulate --restow "$@" 2>&1 || true)
+  while IFS= read -r target; do
+    [[ -z $target ]] && continue
+    [[ -e "$HOME/$target" && ! -L "$HOME/$target" ]] || continue
+    warn "backing up ~/$target → ~/$target.bak"
+    mv "$HOME/$target" "$HOME/$target.bak"
+  done < <(echo "$conflicts" | sed -n 's/.*existing target \([^ ]*\) since.*/\1/p')
   ( cd "$dir" && stow --no-folding --target="$HOME" --restow "$@" )
 }
 
