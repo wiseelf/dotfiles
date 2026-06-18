@@ -1,0 +1,7 @@
+(( $+commands[kubecolor] )) && alias kubectl="kubecolor"
+alias k="kubectl"
+alias mc="mc --nosubshell"
+
+alias grep='grep --color=auto --exclude-dir={.bzr,CVS,.git,.hg,.svn,.idea,.tox,.venv,venv}'
+alias egrep='grep -E'
+alias fgrep='grep -F'
