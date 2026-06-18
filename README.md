@@ -28,9 +28,9 @@ cd ~/dotfiles/public
 
 ## Private overrides
 
-Machine-specific and sensitive config lives in a separate private repo that stows files into `~/.zsh/private/`. The public `.zshrc` automatically sources `~/.zsh/private/*.zsh` if present.
+Machine-specific and sensitive config lives in a separate private repo. The installer stows shared private packages automatically. Machine-specific packages must be stowed manually from the private repo after install.
 
-The installer auto-detects `../private` alongside the public repo. Set `PRIVATE_DIR` to use a different path.
+The installer auto-detects `../private` alongside the public repo. Set `PRIVATE_DIR` to use a different path. The public `.zshrc` automatically sources `~/.zsh/private/*.zsh` if present.
 
 ## Packages
 
