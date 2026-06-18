@@ -18,18 +18,19 @@ Modular zsh dotfiles managed with [stow](https://www.gnu.org/software/stow/).
 ## Install
 
 ```bash
-git clone --recurse-submodules https://github.com/wiseelf/dotfiles ~/dotfiles
-cd ~/dotfiles
+git clone https://github.com/wiseelf/dotfiles/public ~/dotfiles/public
+git clone <private-repo-url>                          ~/dotfiles/private  # optional
+cd ~/dotfiles/public
 ./install.sh
 ```
 
-`install.sh` is platform-aware: installs zsh on Linux, runs `brew bundle` on macOS.
+`install.sh` is platform-aware: installs zsh on Linux, runs `brew bundle` on macOS. It expects the private repo at `../private` relative to itself (i.e. `~/dotfiles/private`). Override with `PRIVATE_DIR=/path/to/private ./install.sh`.
 
 ## Private overrides
 
 Machine-specific and sensitive config lives in a separate private repo that stows files into `~/.zsh/private/`. The public `.zshrc` automatically sources `~/.zsh/private/*.zsh` if present.
 
-Clone your private repo and stow its `zsh` and `claude` packages alongside this one.
+The installer auto-detects `../private` alongside the public repo. Set `PRIVATE_DIR` to use a different path.
 
 ## Packages
 
