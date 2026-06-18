@@ -42,6 +42,19 @@ install_mac_deps() {
   brew bundle --file="$DOTFILES_DIR/Brewfile"
 }
 
+install_linux_deps() {
+  [[ "$PLATFORM" == Linux ]] || return 0
+  local pkgs=()
+  have stow || pkgs+=(stow)
+  [[ ${#pkgs[@]} -eq 0 ]] && return 0
+  log "Installing Linux dependencies: ${pkgs[*]}"
+  if   have apt-get; then sudo apt-get install -y "${pkgs[@]}"
+  elif have dnf;     then sudo dnf install -y "${pkgs[@]}"
+  elif have pacman;  then sudo pacman -S --noconfirm "${pkgs[@]}"
+  elif have zypper;  then sudo zypper install -y "${pkgs[@]}"
+  else warn "Unknown package manager — install ${pkgs[*]} manually"; fi
+}
+
 install_antidote() {
   have antidote && { log "antidote present"; return; }
   if [[ "$PLATFORM" == Darwin ]] && have brew; then
@@ -59,13 +72,17 @@ install_patina_linux() {
   local arch; arch=$(uname -m)
   local bin_dir="$HOME/.local/bin"
   mkdir -p "$bin_dir"
-  local url="https://github.com/michel-kraemer/zsh-patina/releases/latest/download/zsh-patina-${arch}-unknown-linux-musl"
   log "Downloading zsh-patina binary for $arch"
-  if curl -fsSL "$url" -o "$bin_dir/zsh-patina" 2>/dev/null; then
+  local asset_url
+  asset_url=$(curl -fsSL "https://api.github.com/repos/michel-kraemer/zsh-patina/releases/latest" \
+    | grep '"browser_download_url"' \
+    | grep "${arch}-unknown-linux-musl\.tar\.gz" \
+    | grep -o 'https://[^"]*' | head -1)
+  if [[ -n $asset_url ]] && curl -fsSL "$asset_url" | tar -xz -C "$bin_dir" zsh-patina 2>/dev/null; then
     chmod +x "$bin_dir/zsh-patina"
     log "zsh-patina installed to $bin_dir"
   elif have cargo; then
-    log "Binary download failed — falling back to cargo install"
+    log "Binary unavailable — falling back to cargo install"
     cargo install --locked zsh-patina
   else
     warn "zsh-patina unavailable — no syntax highlighting on this machine"
@@ -92,6 +109,7 @@ main() {
   install_zsh
   install_homebrew
   install_mac_deps
+  install_linux_deps
   install_antidote
   install_patina_linux
   stow_packages "$DOTFILES_DIR" "${PUBLIC_PACKAGES[@]}"
