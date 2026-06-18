@@ -3,7 +3,7 @@ set -euo pipefail
 
 PLATFORM="$(uname -s)"
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PRIVATE_DIR="${PRIVATE_DIR:-$(dirname "$DOTFILES_DIR")/dotfiles-private}"
+PRIVATE_DIR="${PRIVATE_DIR:-$(dirname "$DOTFILES_DIR")/private}"
 
 PUBLIC_PACKAGES=(zsh starship btop claude mc)
 PRIVATE_PACKAGES=(zsh claude)
@@ -38,6 +38,7 @@ install_homebrew() {
 install_mac_deps() {
   [[ "$PLATFORM" == Darwin ]] || return 0
   log "brew bundle"
+  brew trust michel-kraemer/zsh-patina 2>/dev/null || true
   brew bundle --file="$DOTFILES_DIR/Brewfile"
 }
 
