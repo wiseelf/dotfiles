@@ -8,6 +8,10 @@ export LANG=en_US.UTF-8
 SHOW_AWS_PROMPT=false
 AWS_PROFILE_STATE_ENABLED=false
 
+# Silent no-op so plugins that call compdef before compinit don't error
+# compinit (called after bundle) replaces this with the real implementation
+function compdef() { : }
+
 # --- antidote plugin manager (static bundle, zero runtime cost) ---------------
 _antidote_brew="$(brew --prefix 2>/dev/null)/share/antidote/antidote.zsh"
 if [[ -f $_antidote_brew ]]; then
@@ -26,6 +30,13 @@ if (( $+functions[antidote] )); then
   fi
   source $zsh_plugins
 fi
+
+# Init completion system after plugins (so plugin fpath additions are picked up)
+autoload -Uz compinit bashcompinit
+_zcompdump=${ZDOTDIR:-$HOME}/.zcompdump
+[[ -n $_zcompdump(#qN.mh+24) ]] && compinit -d $_zcompdump || compinit -C -d $_zcompdump
+bashcompinit
+unset _zcompdump
 
 # --- modular config -----------------------------------------------------------
 ZSH_CONF_DIR=${ZDOTDIR:-$HOME}/.zsh

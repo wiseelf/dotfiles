@@ -1,14 +1,5 @@
-autoload -Uz compinit bashcompinit
-
-# Full compinit at most once per day; use cached dump otherwise
-_zcompdump=${ZDOTDIR:-$HOME}/.zcompdump
-if [[ -n $_zcompdump(#qN.mh+24) ]]; then
-  compinit -d $_zcompdump
-else
-  compinit -C -d $_zcompdump
-fi
-bashcompinit
-unset _zcompdump
+# compinit runs in .zshrc (after plugins extend fpath, before modules)
+# This file handles caching and zstyle only.
 
 # --- cached tool completions -------------------------------------------------
 # Regenerate only when the tool binary is newer than its cache file.
