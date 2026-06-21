@@ -1,4 +1,4 @@
-autoload -Uz select-word-style
+autoload -Uz select-word-style edit-command-line
 select-word-style bash
 
 # History substring search (widgets provided by the plugin)
@@ -11,3 +11,10 @@ bindkey '^[[B' history-substring-search-down
 # Home / End
 bindkey "^[[H" beginning-of-line
 bindkey "^[[F" end-of-line
+
+# Open buffer line in editor
+zle -N edit-command-line
+bindkey '^x^e' edit-command-line
+
+# Magic space
+bindkey ' ' magic-space
