@@ -13,6 +13,7 @@
     "pr": ""
   },
   "model": "opusplan",
+  "advisorModel": "opus",
   "statusLine": {
     "type": "command",
     "command": "bash $HOME/.claude/statusline-command.sh"
@@ -22,5 +23,13 @@
     "security-guidance@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true
   },
-  "tui": "fullscreen"
+  "tui": "fullscreen",
+  "extraKnownMarketplaces": {
+    "antonbabenko": {
+      "source": {
+        "source": "github",
+        "repo": "antonbabenko/agent-plugins"
+      }
+    }
+  }
 }
