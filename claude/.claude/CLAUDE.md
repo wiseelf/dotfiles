@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 ## Communication
-- Extremely concise. Sacrifice grammar for concision. Drop articles/filler.
+- When reporting information to me, be extremely concise and sacrifice grammar for the same of concision.
 - Options, not decisions. No verbose explanation.
 
 ## Repos
@@ -25,4 +25,3 @@
 
 ## Decisions
 - Present options + trade-offs + implications. Ask before architectural choices.
-
