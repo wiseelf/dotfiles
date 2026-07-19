@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "deny": [
+      "CronCreate",
+      "CronDelete",
+      "CronList"
+    ]
+  },
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "ENABLE_TOOL_SEARCH": "1",
@@ -12,8 +19,6 @@
     "commit": "",
     "pr": ""
   },
-  "model": "opusplan",
-  "advisorModel": "opus",
   "statusLine": {
     "type": "command",
     "command": "bash $HOME/.claude/statusline-command.sh"
@@ -21,15 +26,47 @@
   "enabledPlugins": {
     "code-simplifier@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true
+    "superpowers@claude-plugins-official": true,
+    "mattpocock-skills@mattpocock": true
   },
-  "tui": "fullscreen",
   "extraKnownMarketplaces": {
     "antonbabenko": {
       "source": {
         "source": "github",
-        "repo": "antonbabenko/agent-plugins"
-      }
+        "repo": "antonbabenko/agent-plugins",
+        "ref": "code-intelligence-v0.5.0"
+      },
+      "autoUpdate": false
+    },
+    "mattpocock": {
+      "source": {
+        "source": "github",
+        "repo": "mattpocock/skills",
+        "ref": "v1.1.0"
+      },
+      "autoUpdate": false
     }
-  }
+  },
+  "skillOverrides": {
+    "batch-grill-me": "off",
+    "claude-handoff": "off",
+    "loop-me": "off",
+    "setup-ts-deep-modules": "off",
+    "to-questionnaire": "off",
+    "wizard": "off",
+    "writing-beats": "off",
+    "writing-fragments": "off",
+    "writing-shape": "off",
+    "design-an-interface": "off",
+    "qa": "off",
+    "request-refactor-plan": "off",
+    "ubiquitous-language": "off"
+  },
+  "model": "opusplan",
+  "advisorModel": "opus",
+  "tui": "fullscreen",
+  "autoMemoryEnabled": false,
+  "disableRemoteControl": true,
+  "disableWorkflows": true,
+  "disableArtifact": true
 }
