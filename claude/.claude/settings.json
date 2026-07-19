@@ -1,11 +1,4 @@
 {
-  "permissions": {
-    "deny": [
-      "CronCreate",
-      "CronDelete",
-      "CronList"
-    ]
-  },
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "ENABLE_TOOL_SEARCH": "1",
@@ -19,6 +12,32 @@
     "commit": "",
     "pr": ""
   },
+  "permissions": {
+    "deny": [
+      "CronCreate",
+      "CronDelete",
+      "CronList"
+    ]
+  },
+  "model": "opusplan",
+  "skillOverrides": {
+    "batch-grill-me": "off",
+    "claude-handoff": "off",
+    "loop-me": "off",
+    "setup-ts-deep-modules": "off",
+    "to-questionnaire": "off",
+    "wizard": "off",
+    "writing-beats": "off",
+    "writing-fragments": "off",
+    "writing-shape": "off",
+    "design-an-interface": "off",
+    "qa": "off",
+    "request-refactor-plan": "off",
+    "ubiquitous-language": "off"
+  },
+  "disableRemoteControl": true,
+  "disableWorkflows": true,
+  "disableArtifact": true,
   "statusLine": {
     "type": "command",
     "command": "bash $HOME/.claude/statusline-command.sh"
@@ -47,26 +66,7 @@
       "autoUpdate": false
     }
   },
-  "skillOverrides": {
-    "batch-grill-me": "off",
-    "claude-handoff": "off",
-    "loop-me": "off",
-    "setup-ts-deep-modules": "off",
-    "to-questionnaire": "off",
-    "wizard": "off",
-    "writing-beats": "off",
-    "writing-fragments": "off",
-    "writing-shape": "off",
-    "design-an-interface": "off",
-    "qa": "off",
-    "request-refactor-plan": "off",
-    "ubiquitous-language": "off"
-  },
-  "model": "opusplan",
   "advisorModel": "opus",
   "tui": "fullscreen",
-  "autoMemoryEnabled": false,
-  "disableRemoteControl": true,
-  "disableWorkflows": true,
-  "disableArtifact": true
+  "autoMemoryEnabled": false
 }
