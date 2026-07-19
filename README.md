@@ -40,3 +40,8 @@ Stow individual packages selectively:
 stow --no-folding --target=$HOME zsh        # shell only (e.g. remote servers)
 stow --no-folding --target=$HOME zsh btop   # shell + system monitor
 ```
+
+
+## Skills
+https://github.com/mattpocock/skills
+https://github.com/antonbabenko/agent-plugins
