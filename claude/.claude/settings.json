@@ -52,16 +52,14 @@
     "antonbabenko": {
       "source": {
         "source": "github",
-        "repo": "antonbabenko/agent-plugins",
-        "ref": "code-intelligence-v0.5.0"
+        "repo": "antonbabenko/agent-plugins"
       },
       "autoUpdate": false
     },
     "mattpocock": {
       "source": {
         "source": "github",
-        "repo": "mattpocock/skills",
-        "ref": "v1.1.0"
+        "repo": "mattpocock/skills"
       },
       "autoUpdate": false
     }
