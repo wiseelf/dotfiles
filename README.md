@@ -42,6 +42,27 @@ stow --no-folding --target=$HOME zsh btop   # shell + system monitor
 ```
 
 
-## Skills
-https://github.com/mattpocock/skills
-https://github.com/antonbabenko/agent-plugins
+## Claude Code plugins
+
+`settings.json` records enabled plugins and extra marketplaces, but that's
+bookkeeping only — declaring `enabledPlugins`/`extraKnownMarketplaces` does
+not trigger a clone or install. Plugin content lives in `~/.claude/plugins/`
+(cache + marketplace clones), which isn't tracked by this repo and isn't
+installed by `install.sh` (no `claude` CLI bootstrap there yet). On a fresh
+machine, run manually after `install.sh`:
+
+```bash
+claude plugin marketplace add mattpocock/skills
+claude plugin marketplace add antonbabenko/agent-plugins
+
+claude plugin install code-simplifier@claude-plugins-official
+claude plugin install security-guidance@claude-plugins-official
+claude plugin install superpowers@claude-plugins-official
+claude plugin install mattpocock-skills@mattpocock
+```
+
+Marketplaces track their default branch — the CLI has no version/ref pin
+(`marketplace add`, `install`, `update` all lack that flag).
+
+- https://github.com/mattpocock/skills
+- https://github.com/antonbabenko/agent-plugins
