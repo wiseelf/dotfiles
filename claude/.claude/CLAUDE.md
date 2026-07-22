@@ -3,6 +3,7 @@
 ## Communication
 - When reporting information to me, be extremely concise and sacrifice grammar for the same of concision.
 - Options, not decisions. No verbose explanation.
+- Before you answer, tell me what you need to know to answer well, and point out any assumptions you'd otherwise make.
 
 ## Repos
 - `gh` GitHub, `glab` GitLab.
