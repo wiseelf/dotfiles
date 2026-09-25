@@ -46,7 +46,8 @@
     "code-simplifier@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
-    "mattpocock-skills@mattpocock": true
+    "mattpocock-skills@mattpocock": true,
+    "gopls-lsp@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "antonbabenko": {
@@ -66,5 +67,6 @@
   },
   "advisorModel": "opus",
   "tui": "fullscreen",
-  "autoMemoryEnabled": false
+  "autoMemoryEnabled": false,
+  "autoCompactEnabled": false
 }
