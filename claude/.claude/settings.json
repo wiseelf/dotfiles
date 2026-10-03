@@ -20,8 +20,7 @@
       "CronList"
     ]
   },
-  "model": "opusplan",
-  "outputStyle": "STE100",
+  "model": "opus",
   "skillOverrides": {
     "batch-grill-me": "off",
     "claude-handoff": "off",
@@ -67,6 +66,7 @@
       "autoUpdate": false
     }
   },
+  "outputStyle": "STE100",
   "advisorModel": "opus",
   "tui": "fullscreen",
   "autoMemoryEnabled": false,
