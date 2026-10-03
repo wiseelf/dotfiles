@@ -10,6 +10,7 @@ Modular zsh dotfiles managed with [stow](https://www.gnu.org/software/stow/).
 | `starship` | [starship](https://starship.rs) prompt config |
 | `btop` | [btop](https://github.com/aristocratos/btop) config + catppuccin theme |
 | `claude` | [Claude Code](https://claude.ai/code) agents, skills, rules |
+| `claude-mods` | Claude Code [mods](https://code.claude.com/docs/en/plugins/mods/overview) (stowed with folding) |
 | `mc` | midnight commander + catppuccin skin |
 
 **Plugin manager**: [antidote](https://github.com/mattmc3/antidote) (static bundle — zero startup cost)
@@ -39,7 +40,20 @@ Stow individual packages selectively:
 ```bash
 stow --no-folding --target=$HOME zsh        # shell only (e.g. remote servers)
 stow --no-folding --target=$HOME zsh btop   # shell + system monitor
+stow --target=$HOME claude-mods             # mods: one folder link, no --no-folding
 ```
+
+## Claude Code mods
+
+`claude-mods` links `~/.claude/mods` to this repo as one folder. Claude Code refuses a mod file that is a symlink out of its plugin folder, so `--no-folding` breaks mods.
+
+`settings.json` sets `CLAUDE_CODE_PLUGIN_DIRS` to `~/.claude/mods`. Claude Code loads each subfolder that has a `.claude-plugin/` folder as one mod. To add a mod:
+
+1. Put it in `claude-mods/.claude/mods/<name>/`.
+2. Run `claude plugin validate ~/.claude/mods/<name>`.
+3. Start a new session.
+
+To turn a mod off, move its folder out of `claude-mods/.claude/mods/`.
 
 
 ## Claude Code plugins
