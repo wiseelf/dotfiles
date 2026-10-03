@@ -6,6 +6,8 @@ DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRIVATE_DIR="${PRIVATE_DIR:-$(dirname "$DOTFILES_DIR")/private}"
 
 PUBLIC_PACKAGES=(zsh starship btop claude mc)
+# Stowed as one folder link: Claude Code refuses a mod file that is a symlink out of its plugin folder.
+FOLDED_PACKAGES=(claude-mods)
 PRIVATE_PACKAGES=(zsh)
 
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -89,20 +91,25 @@ install_patina_linux() {
   fi
 }
 
+# Usage: stow_packages <dir> [--fold] <packages...>
 stow_packages() {
   local dir=$1; shift
+  local folding=--no-folding
+  if [[ ${1:-} == --fold ]]; then folding=""; shift; fi
   [[ -d $dir ]] || { warn "skip stow: $dir not found"; return; }
   log "stow $(basename $dir): $*"
   # Back up any plain files that would conflict with stow symlinks
   local conflicts
-  conflicts=$(cd "$dir" && stow --no-folding --target="$HOME" --simulate --restow "$@" 2>&1 || true)
+  # shellcheck disable=SC2086 # $folding is empty or one word
+  conflicts=$(cd "$dir" && stow $folding --target="$HOME" --simulate --restow "$@" 2>&1 || true)
   while IFS= read -r target; do
     [[ -z $target ]] && continue
     [[ -e "$HOME/$target" && ! -L "$HOME/$target" ]] || continue
     warn "backing up ~/$target → ~/$target.bak"
     mv "$HOME/$target" "$HOME/$target.bak"
   done < <(echo "$conflicts" | sed -n 's/.*existing target \([^ ]*\) since.*/\1/p')
-  ( cd "$dir" && stow --no-folding --target="$HOME" --restow "$@" )
+  # shellcheck disable=SC2086
+  ( cd "$dir" && stow $folding --target="$HOME" --restow "$@" )
 }
 
 stow_private() {
@@ -122,6 +129,7 @@ main() {
   install_antidote
   install_patina_linux
   stow_packages "$DOTFILES_DIR" "${PUBLIC_PACKAGES[@]}"
+  stow_packages "$DOTFILES_DIR" --fold "${FOLDED_PACKAGES[@]}"
   stow_private
   log "Done — start a new shell: exec zsh"
 }

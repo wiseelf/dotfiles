@@ -6,7 +6,8 @@
     "DISABLE_TELEMETRY": "1",
     "DISABLE_ERROR_REPORTING": "1",
     "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
-    "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS": "25000"
+    "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS": "25000",
+    "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods"
   },
   "attribution": {
     "commit": "",
@@ -19,8 +20,7 @@
       "CronList"
     ]
   },
-  "model": "opusplan",
-  "outputStyle": "STE100",
+  "model": "opus",
   "skillOverrides": {
     "batch-grill-me": "off",
     "claude-handoff": "off",
@@ -66,6 +66,7 @@
       "autoUpdate": false
     }
   },
+  "outputStyle": "STE100",
   "advisorModel": "opus",
   "tui": "fullscreen",
   "autoMemoryEnabled": false,
