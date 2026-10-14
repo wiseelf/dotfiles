@@ -32,7 +32,7 @@ Use these sections in this order. Omit a section that has no content, except Why
 
 1. **Ticket line** (if a ticket exists): `Jira: <KEY> (part of <PARENT>, <INCIDENT> remediation)`.
 2. **`## Why`**: the problem in 2–4 sentences. Give the concrete trigger: what failed, when, who did not see it, and the effect.
-3. **`## What`**: one paragraph for each changed component. Start each paragraph with the component name in bold, then a colon.
+3. **`## What`**: one short paragraph for each changed component. Start each paragraph with the component name in bold, then a colon.
    - Use a table for parallel items (endpoints, config keys, resources) with the same attributes.
    - For each non-obvious design choice, give the reason and the rejected alternative.
    - State what the change deliberately does not do, and why.
@@ -40,6 +40,7 @@ Use these sections in this order. Omit a section that has no content, except Why
    - Start a `**Breaking:**` paragraph if users or other systems must change something.
 4. **`## Checks`**: a bulleted list. Each item is the exact command or method, then the result (`pytest tests/webhooks: 42 passed.`). Only include checks that ran.
 5. **`## Notes for reviewers`**: a bulleted list of findings outside the scope, known limitations, and things deliberately left as they are.
+   - Add a note only if it gives a concrete fact that the reviewer needs. Otherwise, omit the section.
 
 ## 4. Confirm, then publish
 
@@ -60,4 +61,5 @@ Use these sections in this order. Omit a section that has no content, except Why
 | A list of changed files | The behavior change of each component |
 | A summary section at the end | Notes for reviewers only, or nothing |
 | An empty section heading | Omit the section |
+| A filler note ("no hooks ran", "no issues found") | Omit the note |
 | Text describes only the last commit | Text describes all commits since the base |
