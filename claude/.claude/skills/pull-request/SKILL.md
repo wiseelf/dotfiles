@@ -32,7 +32,7 @@ Use these sections in this order. Omit a section that has no content, except Why
 
 1. **Ticket line** (if a ticket exists): `Jira: <KEY> (part of <PARENT>, <INCIDENT> remediation)`.
 2. **`## Why`**: the problem in 2–4 sentences. Give the concrete trigger: what failed, when, who did not see it, and the effect.
-3. **`## What`**: one paragraph for each changed component. Start each paragraph with the component name in bold, then a colon.
+3. **`## What`**: one short paragraph for each changed component. Start each paragraph with the component name in bold, then a colon.
    - Use a table for parallel items (endpoints, config keys, resources) with the same attributes.
    - For each non-obvious design choice, give the reason and the rejected alternative.
    - State what the change deliberately does not do, and why.
