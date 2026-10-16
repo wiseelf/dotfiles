@@ -27,7 +27,7 @@ The mod holds a git push or branch command only if it deletes or force-pushes `m
 
 The mod examines every segment of a command line, so one allowed `rm` does not let a later risky segment run. The text of a heredoc is data, so the mod does not examine it.
 
-The pane shows the risky segment, not the whole command, so the pane does not scroll. It shows one button on each row. Use ↑/↓ and Enter, or press `1` (Proceed) or `2` (Cancel).
+The pane does not show the whole command, so it does not scroll. It shows the tool, its flags and its folder, then the first 5 targets and the number of the others. A command with no targets (`git reset --hard`, migrations) shows its risky segment, cut at 240 characters. It shows one button on each row. Use ↑/↓ and Enter, or press `1` (Proceed) or `2` (Cancel).
 
 ## Load
 
