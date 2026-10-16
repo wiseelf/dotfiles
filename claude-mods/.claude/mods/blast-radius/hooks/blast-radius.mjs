@@ -53,9 +53,9 @@ export function register(on) {
       // Measure where the command will run: the session folder, moved by any
       // `cd dir &&` or `git -C dir` earlier in the same command line.
       const cwd = risk.dir ? await resolveDir($, sessionCwd, risk.dir) : sessionCwd;
-      mine.report = cwd === null
+      mine.report = clipReport(cwd === null
         ? { summary: `${risk.label} in ${risk.dir}`, lines: [], note: `Couldn't find the folder ${risk.dir}, so I couldn't measure what this would change.` }
-        : await measure($, risk, cwd);
+        : await measure($, risk, cwd));
       summary = mine.report.summary;
 
       opened = await $.ui.open({ id: PANE_ID, title: "Blast Radius", focus: true, rows: paneRows(mine) });
@@ -626,7 +626,8 @@ async function measureRm($, risk, cwd) {
   const [head, ...rest] = run.stdout.split("\n").filter((l) => l !== "");
   const [files, bytes, found] = (head ?? "0 0 0").split(" ").map(Number);
   if (!found) {
-    return { summary: `delete nothing: no file matches ${risk.targets.join(" ")}`, lines: [], note: "The paths don't exist, so rm has nothing to remove." };
+    const what = risk.targets.length === 1 ? risk.targets[0] : `the ${risk.targets.length} paths`;
+    return { summary: `delete nothing: no file matches ${what}`, lines: [], note: "The paths don't exist, so rm has nothing to remove." };
   }
   if (!files) {
     return { summary: `delete ${found} ${found === 1 ? "path" : "paths"} with no files in ${found === 1 ? "it" : "them"}`, lines: [], note: `Paths: ${risk.targets.join(" ")}` };
@@ -865,17 +866,32 @@ function size(bytes) {
 
 // ---- Drawing --------------------------------------------------------------
 
-// The pane shows the risky segment, not the whole command, and caps its length.
+// The pane shows the risky segment, not the whole command, and caps each text.
 // A pane taller than its rows scrolls, and then ↑/↓ scroll instead of moving
-// between the buttons. The pane width is not known here, so the wrapped
-// segment gets a row for each SEGMENT_ROW_CHARS characters.
+// between the buttons. The pane width is not known here, so wrapped text gets
+// a row for each TEXT_ROW_CHARS characters.
 const SEGMENT_CHARS_MAX = 240;
-const SEGMENT_ROW_CHARS = 80;
+const SUMMARY_CHARS_MAX = 120;
+const NOTE_CHARS_MAX = 240;
+const TEXT_ROW_CHARS = 80;
+const FIXED_ROWS = 11; // border, title, labels, gaps, buttons, hint
 const PANE_ROWS_MAX = 30;
 
+function clip(text, max) {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/** The report with its summary and note cut, so neither the pane nor the deny message grows. */
+function clipReport(report) {
+  return { ...report, summary: clip(report.summary, SUMMARY_CHARS_MAX), note: report.note && clip(report.note, NOTE_CHARS_MAX) };
+}
+
+function textRows(text) {
+  return text ? Math.ceil(text.length / TEXT_ROW_CHARS) : 0;
+}
+
 function shownSegment(state) {
-  const segment = state.risk.segment ?? state.command;
-  return segment.length > SEGMENT_CHARS_MAX ? `${segment.slice(0, SEGMENT_CHARS_MAX)}…` : segment;
+  return clip(state.risk.segment ?? state.command, SEGMENT_CHARS_MAX);
 }
 
 /** A line that says the segment is part of a longer command, or null. */
@@ -888,9 +904,9 @@ function commandContext(state) {
 }
 
 function paneRows(state) {
-  const segmentRows = Math.ceil(shownSegment(state).length / SEGMENT_ROW_CHARS);
   const { report } = state;
-  return Math.min(PANE_ROWS_MAX, 13 + segmentRows + report.lines.length + (report.more ? 1 : 0));
+  const textRowCount = textRows(shownSegment(state)) + textRows(report.summary) + textRows(report.note);
+  return Math.min(PANE_ROWS_MAX, FIXED_ROWS + textRowCount + report.lines.length + (report.more ? 1 : 0));
 }
 
 function draw(t, state) {
@@ -915,7 +931,7 @@ function draw(t, state) {
       Text({ key: "title", bold: true, color: "yellow", children: `⚠ Blast Radius · ${state.risk.label}` }),
       Text({ key: "cmd", dimColor: true, children: commandContext(state) ?? "Command" }),
       Text({ key: "cmd-text", bold: true, children: shownSegment(state), wrap: "wrap" }),
-      Text({ key: "sum", children: [Text({ dimColor: true, children: "Would    " }), Text({ color: "red", bold: true, children: report.summary })] }),
+      Text({ key: "sum", children: [Text({ dimColor: true, children: "Would    " }), Text({ color: "red", bold: true, children: report.summary })], wrap: "wrap" }),
       Box({ key: "list", flexDirection: "column", marginTop: 1, children: list }),
       report.note ? Text({ key: "note", dimColor: true, italic: true, children: report.note, wrap: "wrap" }) : null,
       // One button per row, so ↑/↓ move between them; ←/→ belong to the engine.
