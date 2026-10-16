@@ -1,5 +1,5 @@
 import { describe, expect, test } from "claude-code/testing";
-import { classify, classifyAll, manifestResources, stripHeredocs } from "../hooks/blast-radius.mjs";
+import { classify, classifyAll, manifestResources, riskTargets, stripHeredocs } from "../hooks/blast-radius.mjs";
 
 describe("classifyAll", () => {
   test("returns every risky segment, so an allowed rm can't hide a later one", () => {
@@ -156,5 +156,18 @@ describe("protected branches", () => {
 describe("segment", () => {
   test("records the risky segment of a longer command", () => {
     expect(classify("make build && rm -rf dist | tee log")?.segment).toBe("rm -rf dist");
+  });
+});
+
+describe("riskTargets", () => {
+  test("lists what each kind acts on", () => {
+    expect(riskTargets(classify("rm -rf a b")!)).toEqual(["a", "b"]);
+    expect(riskTargets(classify("helm uninstall api web")!)).toEqual(["api", "web"]);
+    expect(riskTargets(classify("git branch -D main")!)).toEqual(["main"]);
+    expect(riskTargets(classify("git push -f origin main")!)).toEqual(["main"]);
+  });
+
+  test("returns null for a kind with no targets", () => {
+    expect(riskTargets(classify("git reset --hard")!)).toBe(null);
   });
 });
