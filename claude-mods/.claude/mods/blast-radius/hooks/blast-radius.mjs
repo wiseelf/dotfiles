@@ -25,7 +25,12 @@ let held = null;
 
 export function register(on) {
   on("tool.call", { tool: "Bash" }, async ($, e, next) => {
-    const risk = classify(String(e.command ?? ""));
+    const risks = classifyAll(String(e.command ?? ""));
+    if (risks.length === 0) {
+      return next(e);
+    }
+    const sessionCwd = await $.session.cwd();
+    const risk = await firstHeldRisk($, risks, sessionCwd);
     if (risk === null) {
       return next(e);
     }
@@ -47,14 +52,13 @@ export function register(on) {
     try {
       // Measure where the command will run: the session folder, moved by any
       // `cd dir &&` or `git -C dir` earlier in the same command line.
-      const sessionCwd = await $.session.cwd();
       const cwd = risk.dir ? await resolveDir($, sessionCwd, risk.dir) : sessionCwd;
       mine.report = cwd === null
         ? { summary: `${risk.label} in ${risk.dir}`, lines: [], note: `Couldn't find the folder ${risk.dir}, so I couldn't measure what this would change.` }
         : await measure($, risk, cwd);
       summary = mine.report.summary;
 
-      opened = await $.ui.open({ id: PANE_ID, title: "Blast Radius", focus: true, rows: paneRows(mine.report) });
+      opened = await $.ui.open({ id: PANE_ID, title: "Blast Radius", focus: true, rows: paneRows(mine.command, mine.report) });
       if (!opened.isPlaced) {
         mine.where = "band";
       }
@@ -138,6 +142,12 @@ function joinDir(dir, arg) {
 
 /** The first risky segment of a shell command, or null. */
 export function classify(command) {
+  return classifyAll(command)[0] ?? null;
+}
+
+/** Every risky segment of a shell command, in order. */
+export function classifyAll(command) {
+  const risks = [];
   let dir = null; // where a `cd` earlier on the line moved to; null means the session folder
   const scopes = []; // dir to restore when a ( subshell ) closes
   const pushed = []; // pushd stack, for popd
@@ -151,16 +161,15 @@ export function classify(command) {
     }
     const risk = classifySegment(raw, dir, pushed);
     if (risk !== null && risk.cd === undefined) {
-      return risk;
-    }
-    if (risk !== null) {
+      risks.push(risk);
+    } else if (risk !== null) {
       dir = risk.cd; // a cd, pushd or popd moved the folder
     }
     for (let k = 0; k < closes && scopes.length > 0; k += 1) {
       dir = scopes.pop(); // a cd inside ( ... ) doesn't outlive it
     }
   }
-  return null;
+  return risks;
 }
 
 // Words that can come before the real command without changing what it does.
@@ -209,11 +218,14 @@ function classifySegment(segment, dir, pushed) {
       return { cd: pushed.length > 0 ? pushed.pop() : "-" };
     }
     if (cmd === "rm" || cmd.endsWith("/rm")) {
-      const flags = args.filter((a) => a.startsWith("-"));
+      // After `--`, every word is a path, even one that starts with "-".
+      const end = args.indexOf("--");
+      const options = end === -1 ? args : args.slice(0, end);
+      const flags = options.filter((a) => a.startsWith("-") && a !== "-");
       const recursive = flags.some((f) => f === "--recursive" || (/^-[^-]/.test(f) && /[rR]/.test(f)));
       const force = flags.some((f) => f === "--force" || (/^-[^-]/.test(f) && f.includes("f")));
       if (recursive || force) {
-        const targets = args.filter((a) => !a.startsWith("-") || a === "-");
+        const targets = [...options.filter((a) => !flags.includes(a)), ...(end === -1 ? [] : args.slice(end + 1))];
         return { kind: "rm", label: `rm ${flags.join(" ")}`.trim(), targets, dir };
       }
     }
@@ -282,6 +294,80 @@ async function resolveDir($, sessionCwd, dir) {
   const run = await $.process.run(["bash", "-c", CD_SCRIPT, "blast-radius", dir], { cwd: sessionCwd, timeoutMs: 5000 });
   const out = run.stdout.trim();
   return run.exitCode === 0 && out !== "" ? out : null;
+}
+
+// ---- Allowed rm -------------------------------------------------------------
+//
+// An rm runs without a hold if each path it removes is inside /tmp, or is a
+// linked worktree inside the main worktree of the repo. The parent folder is
+// resolved, not the path itself, so a symlink is judged where it is, as rm
+// removes the link and not its target. A path that ends in "/" is resolved in
+// full, as rm then follows the link. A path that can't be resolved is held.
+const SAFE_RM_SCRIPT = `
+shopt -s nullglob dotglob
+canon() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
+# True if $1 is a linked worktree inside the main worktree. Git runs in the
+# parent folder, so the session folder can be outside the repo.
+is_inner_worktree() {
+  local line w main=""
+  while IFS= read -r line; do
+    case "$line" in "worktree "*)
+      w=$(canon "\${line#worktree }") || continue
+      if [[ -z "$main" ]]; then
+        main="$w"
+      elif [[ "$1" == "$w" && "$w" == "$main"/* ]]; then
+        return 0
+      fi;;
+    esac
+  done < <(git -C "$(dirname -- "$1")" worktree list --porcelain 2>/dev/null)
+  return 1
+}
+allowed() {
+  case "$1" in /tmp/?*|/private/tmp/?*) return 0;; esac
+  is_inner_worktree "$1"
+}
+(( $# > 0 )) || exit 1
+for t in "$@"; do
+  case "$t" in "~"|"~/"*) t="$HOME\${t#\\~}";; esac
+  if [[ "$t" == *[*?[]* ]]; then
+    matches=()
+    while IFS= read -r m; do matches+=("$m"); done < <(compgen -G "$t")
+  else
+    matches=("$t")
+  fi
+  for m in "\${matches[@]}"; do
+    p=""
+    case "$m" in
+      */|.|..|*/.|*/..) p=$(canon "$m");;
+      *) d=$(canon "$(dirname -- "$m")") && p="$d/$(basename -- "$m")";;
+    esac
+    [[ -n "$p" ]] && allowed "$p" || exit 1
+  done
+done
+echo allowed
+`;
+
+/** The first risk that must be held, or null if each one is an allowed rm. */
+async function firstHeldRisk($, risks, sessionCwd) {
+  for (const risk of risks) {
+    if (risk.kind !== "rm" || !(await isAllowedRm($, risk, sessionCwd))) {
+      return risk;
+    }
+  }
+  return null;
+}
+
+async function isAllowedRm($, risk, sessionCwd) {
+  try {
+    const cwd = risk.dir ? await resolveDir($, sessionCwd, risk.dir) : sessionCwd;
+    if (cwd === null) {
+      return false;
+    }
+    const run = await $.process.run(["bash", "-c", SAFE_RM_SCRIPT, "blast-radius", ...risk.targets], { cwd, timeoutMs: 10000 });
+    return run.exitCode === 0 && run.stdout.trim() === "allowed";
+  } catch {
+    return false; // anything unexpected holds the command
+  }
 }
 
 /** Splits one segment into words, honouring quotes. Good enough to read flags and paths. */
@@ -659,8 +745,14 @@ function size(bytes) {
 
 // ---- Drawing --------------------------------------------------------------
 
-function paneRows(report) {
-  return Math.min(24, 9 + report.lines.length + (report.more ? 1 : 0));
+// The pane width is not known here, so the wrapped command gets a row for each
+// COMMAND_ROW_CHARS characters.
+const COMMAND_ROW_CHARS = 80;
+const PANE_ROWS_MAX = 30;
+
+function paneRows(command, report) {
+  const commandRows = command.split("\n").reduce((n, line) => n + Math.max(1, Math.ceil(line.length / COMMAND_ROW_CHARS)), 0);
+  return Math.min(PANE_ROWS_MAX, 12 + commandRows + report.lines.length + (report.more ? 1 : 0));
 }
 
 function draw(t, state) {
@@ -683,20 +775,22 @@ function draw(t, state) {
     paddingX: 1,
     children: [
       Text({ key: "title", bold: true, color: "yellow", children: `⚠ Blast Radius · ${state.risk.label}` }),
-      Text({ key: "cmd", children: [Text({ dimColor: true, children: "Command  " }), Text({ bold: true, children: state.command })], wrap: "truncate-end" }),
+      Text({ key: "cmd", dimColor: true, children: "Command" }),
+      Text({ key: "cmd-text", bold: true, children: state.command, wrap: "wrap" }),
       Text({ key: "sum", children: [Text({ dimColor: true, children: "Would    " }), Text({ color: "red", bold: true, children: report.summary })] }),
       Box({ key: "list", flexDirection: "column", marginTop: 1, children: list }),
       report.note ? Text({ key: "note", dimColor: true, italic: true, children: report.note, wrap: "wrap" }) : null,
+      // One button per row, so ↑/↓ move between them; ←/→ belong to the engine.
       Box({
         key: "buttons",
+        flexDirection: "column",
         marginTop: 1,
-        gap: 2,
         children: [
           Button({ key: "proceed", label: "Proceed", hotkey: "1", plain: true, onPress: decide("proceed") }),
           Button({ key: "cancel", label: "Cancel", hotkey: "2", plain: true, autoFocus: true, onPress: decide("cancel") }),
-          Text({ key: "hint", dimColor: true, children: "Claude is waiting on your answer" }),
         ],
       }),
+      Text({ key: "hint", dimColor: true, children: "Claude is waiting on your answer · ↑/↓ and Enter, or 1/2" }),
     ],
   });
 }

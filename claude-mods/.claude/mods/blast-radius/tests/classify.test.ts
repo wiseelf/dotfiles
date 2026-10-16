@@ -1,5 +1,27 @@
 import { describe, expect, test } from "claude-code/testing";
-import { classify, manifestResources } from "../hooks/blast-radius.mjs";
+import { classify, classifyAll, manifestResources } from "../hooks/blast-radius.mjs";
+
+describe("classifyAll", () => {
+  test("returns every risky segment, so an allowed rm can't hide a later one", () => {
+    const risks = classifyAll("rm -rf /tmp/x && cd sub && rm -rf ~");
+    expect(risks.map((r) => r.targets)).toEqual([["/tmp/x"], ["~"]]);
+    expect(risks[1]?.dir).toBe("sub");
+  });
+
+  test("returns nothing for a safe command", () => {
+    expect(classifyAll("ls -la && git status")).toEqual([]);
+  });
+});
+
+describe("rm targets", () => {
+  test("reads each word after -- as a path", () => {
+    expect(classify("rm -rf -- /tmp/x -weird")?.targets).toEqual(["/tmp/x", "-weird"]);
+  });
+
+  test("keeps a lone - as a path", () => {
+    expect(classify("rm -f - a")?.targets).toEqual(["-", "a"]);
+  });
+});
 
 describe("terraform and tofu", () => {
   test("holds terraform destroy with its inputs", () => {
