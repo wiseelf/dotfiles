@@ -53,9 +53,10 @@ export function register(on) {
       // Measure where the command will run: the session folder, moved by any
       // `cd dir &&` or `git -C dir` earlier in the same command line.
       const cwd = risk.dir ? await resolveDir($, sessionCwd, risk.dir) : sessionCwd;
-      mine.report = cwd === null
+      mine.cwd = cwd;
+      mine.report = clipReport(cwd === null
         ? { summary: `${risk.label} in ${risk.dir}`, lines: [], note: `Couldn't find the folder ${risk.dir}, so I couldn't measure what this would change.` }
-        : await measure($, risk, cwd);
+        : await measure($, risk, cwd));
       summary = mine.report.summary;
 
       opened = await $.ui.open({ id: PANE_ID, title: "Blast Radius", focus: true, rows: paneRows(mine) });
@@ -626,7 +627,8 @@ async function measureRm($, risk, cwd) {
   const [head, ...rest] = run.stdout.split("\n").filter((l) => l !== "");
   const [files, bytes, found] = (head ?? "0 0 0").split(" ").map(Number);
   if (!found) {
-    return { summary: `delete nothing: no file matches ${risk.targets.join(" ")}`, lines: [], note: "The paths don't exist, so rm has nothing to remove." };
+    const what = risk.targets.length === 1 ? risk.targets[0] : `the ${risk.targets.length} paths`;
+    return { summary: `delete nothing: no file matches ${what}`, lines: [], note: "The paths don't exist, so rm has nothing to remove." };
   }
   if (!files) {
     return { summary: `delete ${found} ${found === 1 ? "path" : "paths"} with no files in ${found === 1 ? "it" : "them"}`, lines: [], note: `Paths: ${risk.targets.join(" ")}` };
@@ -865,41 +867,95 @@ function size(bytes) {
 
 // ---- Drawing --------------------------------------------------------------
 
-// The pane shows the risky segment, not the whole command, and caps its length.
+// The pane shows the risky segment, not the whole command, and caps each text.
 // A pane taller than its rows scrolls, and then ↑/↓ scroll instead of moving
-// between the buttons. The pane width is not known here, so the wrapped
-// segment gets a row for each SEGMENT_ROW_CHARS characters.
+// between the buttons. The pane width is not known here, so wrapped text gets
+// a row for each TEXT_ROW_CHARS characters.
 const SEGMENT_CHARS_MAX = 240;
-const SEGMENT_ROW_CHARS = 80;
+const SUMMARY_CHARS_MAX = 120;
+const NOTE_CHARS_MAX = 240;
+const TEXT_ROW_CHARS = 80;
+const FIXED_ROWS = 11; // border, title, labels, gaps, buttons, hint
+const PANE_LIST_MAX = 5;
 const PANE_ROWS_MAX = 30;
 
-function shownSegment(state) {
-  const segment = state.risk.segment ?? state.command;
-  return segment.length > SEGMENT_CHARS_MAX ? `${segment.slice(0, SEGMENT_CHARS_MAX)}…` : segment;
+function clip(text, max) {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-/** A line that says the segment is part of a longer command, or null. */
+/** The report with its summary and note cut, so neither the pane nor the deny message grows. */
+function clipReport(report) {
+  return { ...report, summary: clip(report.summary, SUMMARY_CHARS_MAX), note: report.note && clip(report.note, NOTE_CHARS_MAX) };
+}
+
+function textRows(text) {
+  return text ? Math.ceil(text.length / TEXT_ROW_CHARS) : 0;
+}
+
+/** The paths, resources or branches a risk acts on, or null if it has none to list. */
+export function riskTargets(risk) {
+  switch (risk.kind) {
+    case "rm":
+    case "kubectl-delete":
+      return risk.targets;
+    case "helm-uninstall":
+      return risk.releases;
+    case "git-branch-delete":
+      return risk.branches;
+    case "git-push-force":
+      return pushTargets(risk.args).refspecs;
+    default:
+      return null;
+  }
+}
+
+/** The first PANE_LIST_MAX items, and how many more there are. */
+function capList(items, extra = 0) {
+  return { shown: items.slice(0, PANE_LIST_MAX), more: extra + Math.max(0, items.length - PANE_LIST_MAX) };
+}
+
+/**
+ * What the command does, in one line: the tool, its flags and its folder, with
+ * the targets listed under it. A kind with no targets shows its segment.
+ */
+function commandLine(state) {
+  if (riskTargets(state.risk) === null) {
+    return clip(state.risk.segment ?? state.command, SEGMENT_CHARS_MAX);
+  }
+  return state.cwd ? `${state.risk.label} in ${state.cwd}` : state.risk.label;
+}
+
+/** A line that says the risky segment is part of a longer command, or null. */
 function commandContext(state) {
   const lineCount = state.command.split("\n").length;
-  if (state.command.trim() === shownSegment(state)) {
-    return null;
+  if (lineCount > 1) {
+    return `Part of a ${lineCount}-line command`;
   }
-  return lineCount > 1 ? `Part of a ${lineCount}-line command` : "Part of a longer command";
+  return state.command.trim() === state.risk.segment ? null : "Part of a longer command";
+}
+
+function listRows({ shown, more }) {
+  return shown.length + (more ? 1 : 0);
 }
 
 function paneRows(state) {
-  const segmentRows = Math.ceil(shownSegment(state).length / SEGMENT_ROW_CHARS);
   const { report } = state;
-  return Math.min(PANE_ROWS_MAX, 13 + segmentRows + report.lines.length + (report.more ? 1 : 0));
+  const targets = riskTargets(state.risk);
+  const targetRows = targets === null ? 0 : 1 + listRows(capList(targets));
+  const textRowCount = textRows(commandLine(state)) + textRows(report.summary) + textRows(report.note);
+  return Math.min(PANE_ROWS_MAX, FIXED_ROWS + textRowCount + targetRows + listRows(capList(report.lines, report.more ?? 0)));
+}
+
+function listTexts(Text, prefix, { shown, more }) {
+  const texts = shown.map((line, i) => Text({ key: `${prefix}${i}`, children: `  ${line}`, wrap: "truncate-end" }));
+  return more ? [...texts, Text({ key: `${prefix}more`, dimColor: true, children: `  + ${more} more` })] : texts;
 }
 
 function draw(t, state) {
   const { Box, Text, Button } = t;
   const { report } = state;
-  const list = report.lines.map((line, i) => Text({ key: `l${i}`, children: `  ${line}`, wrap: "truncate-end" }));
-  if (report.more) {
-    list.push(Text({ key: "more", dimColor: true, children: `  + ${report.more} more` }));
-  }
+  const targets = riskTargets(state.risk);
+  const list = listTexts(Text, "l", capList(report.lines, report.more ?? 0));
   // The buttons answer the call this pane was drawn for, never whichever one is held now.
   const decide = (choice) => () => {
     if (state.decision === null) {
@@ -914,8 +970,10 @@ function draw(t, state) {
     children: [
       Text({ key: "title", bold: true, color: "yellow", children: `⚠ Blast Radius · ${state.risk.label}` }),
       Text({ key: "cmd", dimColor: true, children: commandContext(state) ?? "Command" }),
-      Text({ key: "cmd-text", bold: true, children: shownSegment(state), wrap: "wrap" }),
-      Text({ key: "sum", children: [Text({ dimColor: true, children: "Would    " }), Text({ color: "red", bold: true, children: report.summary })] }),
+      Text({ key: "cmd-text", bold: true, children: commandLine(state), wrap: "wrap" }),
+      targets === null ? null : Text({ key: "targets", dimColor: true, children: `Targets (${targets.length})` }),
+      targets === null ? null : Box({ key: "target-list", flexDirection: "column", children: listTexts(Text, "t", capList(targets)) }),
+      Text({ key: "sum", children: [Text({ dimColor: true, children: "Would    " }), Text({ color: "red", bold: true, children: report.summary })], wrap: "wrap" }),
       Box({ key: "list", flexDirection: "column", marginTop: 1, children: list }),
       report.note ? Text({ key: "note", dimColor: true, italic: true, children: report.note, wrap: "wrap" }) : null,
       // One button per row, so ↑/↓ move between them; ←/→ belong to the engine.
