@@ -1,5 +1,27 @@
 import { describe, expect, test } from "claude-code/testing";
-import { classify, manifestResources } from "../hooks/blast-radius.mjs";
+import { classify, classifyAll, manifestResources, stripHeredocs } from "../hooks/blast-radius.mjs";
+
+describe("classifyAll", () => {
+  test("returns every risky segment, so an allowed rm can't hide a later one", () => {
+    const risks = classifyAll("rm -rf /tmp/x && cd sub && rm -rf ~");
+    expect(risks.map((r) => r.targets)).toEqual([["/tmp/x"], ["~"]]);
+    expect(risks[1]?.dir).toBe("sub");
+  });
+
+  test("returns nothing for a safe command", () => {
+    expect(classifyAll("ls -la && git status")).toEqual([]);
+  });
+});
+
+describe("rm targets", () => {
+  test("reads each word after -- as a path", () => {
+    expect(classify("rm -rf -- /tmp/x -weird")?.targets).toEqual(["/tmp/x", "-weird"]);
+  });
+
+  test("keeps a lone - as a path", () => {
+    expect(classify("rm -f - a")?.targets).toEqual(["-", "a"]);
+  });
+});
 
 describe("terraform and tofu", () => {
   test("holds terraform destroy with its inputs", () => {
@@ -80,5 +102,59 @@ describe("upstream commands still work", () => {
 
   test("passes a command named like an Object method", () => {
     expect(classify("constructor foo")).toBe(null);
+  });
+});
+
+describe("heredocs", () => {
+  test("ignores commands inside a heredoc body", () => {
+    const command = ["cat > /tmp/body.md <<'EOF'", "rm -rf ~", "git push --force origin main", "EOF", "gh pr create --body-file /tmp/body.md"].join("\n");
+    expect(classifyAll(command)).toEqual([]);
+  });
+
+  test("examines commands after the heredoc ends", () => {
+    expect(classify(["cat <<-EOF > x", "\ttext", "\tEOF", "rm -rf build"].join("\n"))?.targets).toEqual(["build"]);
+  });
+
+  test("keeps a here-string line", () => {
+    expect(stripHeredocs("cat <<< hi\nrm -rf a")).toBe("cat <<< hi\nrm -rf a");
+  });
+});
+
+describe("protected branches", () => {
+  test("passes a force push to a feature branch", () => {
+    expect(classify("git push --force origin feat/x")).toBe(null);
+    expect(classify("git push origin +feat/x")).toBe(null);
+  });
+
+  test("holds a force push to main or master", () => {
+    expect(classify("git push -f origin main")?.kind).toBe("git-push-force");
+    expect(classify("git push --force-with-lease origin HEAD:refs/heads/master")?.kind).toBe("git-push-force");
+  });
+
+  test("leaves a force push with no refspec to the repo check", () => {
+    expect(classify("git push --force")?.isCurrentBranch).toBe(true);
+    expect(classify("git push -f origin HEAD")?.isCurrentBranch).toBe(true);
+  });
+
+  test("holds a force push of every branch", () => {
+    expect(classify("git push --mirror origin")?.kind).toBe("git-push-force");
+  });
+
+  test("passes a normal push and a delete of a feature branch", () => {
+    expect(classify("git push -u origin main")).toBe(null);
+    expect(classify("git push origin --delete feat/x")).toBe(null);
+    expect(classify("git branch -D feat/x")).toBe(null);
+  });
+
+  test("holds a delete of main or master", () => {
+    expect(classify("git push origin --delete main")?.branches).toEqual(["main"]);
+    expect(classify("git push origin :master")?.remote).toBe("origin");
+    expect(classify("git branch -D main")?.kind).toBe("git-branch-delete");
+  });
+});
+
+describe("segment", () => {
+  test("records the risky segment of a longer command", () => {
+    expect(classify("make build && rm -rf dist | tee log")?.segment).toBe("rm -rf dist");
   });
 });
