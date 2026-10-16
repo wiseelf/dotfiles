@@ -14,6 +14,21 @@ The mod also holds these commands and shows what they change:
 
 A `--dry-run` (not `none`) command runs and is not held.
 
+An `rm -r`/`rm -f` runs and is not held if each path is one of these:
+
+- A path inside `/tmp` (not `/tmp` itself).
+- A linked worktree inside the main worktree of its repo (for example `.worktrees/feature`). Files inside a worktree are still held.
+
+The mod holds a git push or branch command only if it deletes or force-pushes `main` or `master`:
+
+- `git push --force`, `-f`, `--force-with-lease`, or `+ref` to `main`/`master`. A force push with no refspec is held if the current branch pushes to `main`/`master`.
+- `git push --mirror`, and `git push --force --all`.
+- `git push --delete main`, `git push origin :main`, `git branch -D main`.
+
+The mod examines every segment of a command line, so one allowed `rm` does not let a later risky segment run. The text of a heredoc is data, so the mod does not examine it.
+
+The pane shows the risky segment, not the whole command, so the pane does not scroll. It shows one button on each row. Use ↑/↓ and Enter, or press `1` (Proceed) or `2` (Cancel).
+
 ## Load
 
 `settings.json` sets `CLAUDE_CODE_PLUGIN_DIRS` to `~/.claude/mods`. Stow links the `mods` folder there. Each session loads the mod and reloads it when a file changes.
