@@ -58,7 +58,7 @@ export function register(on) {
         : await measure($, risk, cwd);
       summary = mine.report.summary;
 
-      opened = await $.ui.open({ id: PANE_ID, title: "Blast Radius", focus: true, rows: paneRows(mine.command, mine.report) });
+      opened = await $.ui.open({ id: PANE_ID, title: "Blast Radius", focus: true, rows: paneRows(mine) });
       if (!opened.isPlaced) {
         mine.where = "band";
       }
@@ -151,7 +151,7 @@ export function classifyAll(command) {
   let dir = null; // where a `cd` earlier on the line moved to; null means the session folder
   const scopes = []; // dir to restore when a ( subshell ) closes
   const pushed = []; // pushd stack, for popd
-  for (const raw of command.split(/&&|\|\||;|\||\n/)) {
+  for (const raw of stripHeredocs(command).split(/&&|\|\||;|\||\n/)) {
     const opens = (raw.match(/^\s*\(+/)?.[0].trim().length) ?? 0;
     // Trailing redirects and & don't hide a closing ) : `(cd sub && make) > log`.
     const tail = raw.replace(/(?:\s*(?:\d*>>?|&>>?|<)\s*\S+|\s*&)+\s*$/, "");
@@ -161,7 +161,7 @@ export function classifyAll(command) {
     }
     const risk = classifySegment(raw, dir, pushed);
     if (risk !== null && risk.cd === undefined) {
-      risks.push(risk);
+      risks.push({ ...risk, segment: raw.trim() });
     } else if (risk !== null) {
       dir = risk.cd; // a cd, pushd or popd moved the folder
     }
@@ -170,6 +170,26 @@ export function classifyAll(command) {
     }
   }
   return risks;
+}
+
+// `<<EOF`, `<<-EOF`, `<< 'EOF'`, `<<"EOF"`; not the here-string `<<<`.
+const HEREDOC_START = /(?<!<)<<(?!<)-?\s*(['"]?)([A-Za-z_][\w-]*)\1/g;
+
+/** The command without heredoc bodies: their lines are data, not commands. */
+export function stripHeredocs(command) {
+  const kept = [];
+  const ends = []; // delimiters still open, in order
+  for (const line of command.split("\n")) {
+    if (ends.length > 0) {
+      if (line.replace(/^\t+/, "") === ends[0]) {
+        ends.shift();
+      }
+      continue;
+    }
+    kept.push(line);
+    ends.push(...[...line.matchAll(HEREDOC_START)].map((m) => m[2]));
+  }
+  return kept.join("\n");
 }
 
 // Words that can come before the real command without changing what it does.
@@ -251,8 +271,11 @@ function classifySegment(segment, dir, pushed) {
       if (sub === "clean") {
         return { kind: "git-clean", label: "git clean", args: rest, dir: gitDir };
       }
-      if (sub === "push" && rest.some((a) => a === "--force" || a === "-f" || a.startsWith("--force-with-lease") || /^\+/.test(a))) {
-        return { kind: "git-push-force", label: "git push --force", args: rest, dir: gitDir };
+      if (sub === "push") {
+        return classifyPush(rest, gitDir);
+      }
+      if (sub === "branch") {
+        return classifyBranchDelete(rest, gitDir);
       }
       const stagedOnly = sub === "restore" && rest.includes("--staged") && !rest.includes("--worktree") && !rest.includes("-W");
       if ((sub === "checkout" || sub === "restore") && rest.includes(".") && !stagedOnly) {
@@ -281,6 +304,78 @@ function classifySegment(segment, dir, pushed) {
     }
   }
   return null;
+}
+
+// ---- Protected branches -----------------------------------------------------
+//
+// Only a delete or a force push of a protected branch is held. A force push
+// with no refspec goes to the current branch, which only the repo knows, so
+// the hook resolves it (see firstHeldRisk).
+
+const PROTECTED_BRANCHES = new Set(["main", "master"]);
+const PUSH_VALUE_OPTIONS = new Set(["-o", "--push-option", "--repo", "--receive-pack", "--exec"]);
+
+function isProtected(branch) {
+  return PROTECTED_BRANCHES.has(branch.replace(/^refs\/heads\//, ""));
+}
+
+/** The remote and refspecs of `git push` args. */
+function pushTargets(args) {
+  const positionals = [];
+  for (let i = 0; i < args.length; i += 1) {
+    if (PUSH_VALUE_OPTIONS.has(args[i])) {
+      i += 1;
+    } else if (!args[i].startsWith("-")) {
+      positionals.push(args[i]);
+    }
+  }
+  const [remote, ...refspecs] = positionals;
+  return { remote, refspecs };
+}
+
+function classifyPush(args, dir) {
+  const { remote, refspecs } = pushTargets(args);
+  const deletes = args.includes("--delete") || args.includes("-d");
+  // `:main` deletes main; with --delete, each refspec is a branch to delete.
+  const deleted = deletes ? refspecs : refspecs.filter((r) => r.startsWith(":")).map((r) => r.slice(1));
+  const deletedProtected = deleted.filter(isProtected);
+  if (deletedProtected.length > 0) {
+    return { kind: "git-branch-delete", label: "git push --delete", remote: remote ?? "origin", branches: deletedProtected, dir };
+  }
+  const forced = args.some((a) => a === "--force" || a === "-f" || a.startsWith("--force-with-lease") || a === "--mirror")
+    || refspecs.some((r) => r.startsWith("+"));
+  if (!forced || deletes) {
+    return null;
+  }
+  const label = "git push --force";
+  if (args.includes("--all") || args.includes("--mirror")) {
+    return { kind: "git-push-force", label, args, dir };
+  }
+  // The destination of `src:dst` is dst; of `src` alone, src. HEAD is the current branch.
+  const destinations = refspecs.map((r) => r.replace(/^\+/, "").split(":").pop());
+  if (destinations.length === 0 || destinations.includes("HEAD")) {
+    return { kind: "git-push-force", label, args, dir, isCurrentBranch: true };
+  }
+  return destinations.some(isProtected) ? { kind: "git-push-force", label, args, dir } : null;
+}
+
+function classifyBranchDelete(args, dir) {
+  const deletes = args.some((a) => a === "--delete" || /^-[a-zA-Z]*[dD]/.test(a));
+  const branches = args.filter((a) => !a.startsWith("-") && isProtected(a));
+  if (!deletes || branches.length === 0) {
+    return null;
+  }
+  return { kind: "git-branch-delete", label: "git branch --delete", branches, dir };
+}
+
+/** The branch a push with no refspec goes to: its push target, else the current branch. */
+async function currentPushBranch($, cwd) {
+  const pushRef = await $.process.run(["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{push}"], { cwd, timeoutMs: 10000 });
+  if (pushRef.exitCode === 0 && pushRef.stdout.trim() !== "") {
+    return pushRef.stdout.trim().replace(/^[^/]+\//, ""); // drop the remote name
+  }
+  const head = await $.process.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd, timeoutMs: 10000 });
+  return head.stdout.trim();
 }
 
 // Resolves a `cd` target to an absolute folder, or null if it doesn't exist.
@@ -347,21 +442,29 @@ done
 echo allowed
 `;
 
-/** The first risk that must be held, or null if each one is an allowed rm. */
+/** The first risk that must be held, or null if each one is allowed. */
 async function firstHeldRisk($, risks, sessionCwd) {
   for (const risk of risks) {
-    if (risk.kind !== "rm" || !(await isAllowedRm($, risk, sessionCwd))) {
+    if (!(await isAllowed($, risk, sessionCwd))) {
       return risk;
     }
   }
   return null;
 }
 
-async function isAllowedRm($, risk, sessionCwd) {
+/** True for an rm of allowed paths, or a force push to a branch that is not protected. */
+async function isAllowed($, risk, sessionCwd) {
+  if (risk.kind !== "rm" && !risk.isCurrentBranch) {
+    return false;
+  }
   try {
     const cwd = risk.dir ? await resolveDir($, sessionCwd, risk.dir) : sessionCwd;
     if (cwd === null) {
       return false;
+    }
+    if (risk.isCurrentBranch) {
+      const branch = await currentPushBranch($, cwd);
+      return branch !== "" && branch !== "HEAD" && !isProtected(branch);
     }
     const run = await $.process.run(["bash", "-c", SAFE_RM_SCRIPT, "blast-radius", ...risk.targets], { cwd, timeoutMs: 10000 });
     return run.exitCode === 0 && run.stdout.trim() === "allowed";
@@ -540,6 +643,9 @@ async function measureGit($, risk, cwd) {
   if (risk.kind === "git-push-force") {
     return await measurePush($, risk, cwd);
   }
+  if (risk.kind === "git-branch-delete") {
+    return await measureBranchDelete($, risk, cwd);
+  }
   if (risk.kind === "git-clean") {
     const flags = [];
     const paths = [];
@@ -588,6 +694,20 @@ async function measureGit($, risk, cwd) {
     lines: lost.slice(0, LIST_MAX).map((l) => `${l.slice(0, 2)} ${l.slice(3)}`),
     more: Math.max(0, lost.length - LIST_MAX),
     note: stat.stdout.trim() !== "" ? `${stat.stdout.trim()}. Uncommitted changes can't be recovered.` : "From git status --porcelain.",
+  };
+}
+
+async function measureBranchDelete($, risk, cwd) {
+  const refs = risk.remote ? risk.branches.map((b) => `${risk.remote}/${b}`) : risk.branches;
+  const lines = [];
+  for (const ref of refs) {
+    const tip = await $.process.run(["git", "log", "-1", "--oneline", "--no-decorate", ref], { cwd, timeoutMs: 10000 });
+    lines.push(tip.exitCode === 0 ? `${ref}: ${tip.stdout.trim()}` : `${ref}: no local copy`);
+  }
+  return {
+    summary: `delete the protected ${refs.length === 1 ? "branch" : "branches"} ${refs.join(" ")}`,
+    lines,
+    note: risk.remote ? "The remote branch goes for every clone." : "Commits only on this branch are lost.",
   };
 }
 
@@ -745,14 +865,32 @@ function size(bytes) {
 
 // ---- Drawing --------------------------------------------------------------
 
-// The pane width is not known here, so the wrapped command gets a row for each
-// COMMAND_ROW_CHARS characters.
-const COMMAND_ROW_CHARS = 80;
+// The pane shows the risky segment, not the whole command, and caps its length.
+// A pane taller than its rows scrolls, and then ↑/↓ scroll instead of moving
+// between the buttons. The pane width is not known here, so the wrapped
+// segment gets a row for each SEGMENT_ROW_CHARS characters.
+const SEGMENT_CHARS_MAX = 240;
+const SEGMENT_ROW_CHARS = 80;
 const PANE_ROWS_MAX = 30;
 
-function paneRows(command, report) {
-  const commandRows = command.split("\n").reduce((n, line) => n + Math.max(1, Math.ceil(line.length / COMMAND_ROW_CHARS)), 0);
-  return Math.min(PANE_ROWS_MAX, 12 + commandRows + report.lines.length + (report.more ? 1 : 0));
+function shownSegment(state) {
+  const segment = state.risk.segment ?? state.command;
+  return segment.length > SEGMENT_CHARS_MAX ? `${segment.slice(0, SEGMENT_CHARS_MAX)}…` : segment;
+}
+
+/** A line that says the segment is part of a longer command, or null. */
+function commandContext(state) {
+  const lineCount = state.command.split("\n").length;
+  if (state.command.trim() === shownSegment(state)) {
+    return null;
+  }
+  return lineCount > 1 ? `Part of a ${lineCount}-line command` : "Part of a longer command";
+}
+
+function paneRows(state) {
+  const segmentRows = Math.ceil(shownSegment(state).length / SEGMENT_ROW_CHARS);
+  const { report } = state;
+  return Math.min(PANE_ROWS_MAX, 13 + segmentRows + report.lines.length + (report.more ? 1 : 0));
 }
 
 function draw(t, state) {
@@ -775,8 +913,8 @@ function draw(t, state) {
     paddingX: 1,
     children: [
       Text({ key: "title", bold: true, color: "yellow", children: `⚠ Blast Radius · ${state.risk.label}` }),
-      Text({ key: "cmd", dimColor: true, children: "Command" }),
-      Text({ key: "cmd-text", bold: true, children: state.command, wrap: "wrap" }),
+      Text({ key: "cmd", dimColor: true, children: commandContext(state) ?? "Command" }),
+      Text({ key: "cmd-text", bold: true, children: shownSegment(state), wrap: "wrap" }),
       Text({ key: "sum", children: [Text({ dimColor: true, children: "Would    " }), Text({ color: "red", bold: true, children: report.summary })] }),
       Box({ key: "list", flexDirection: "column", marginTop: 1, children: list }),
       report.note ? Text({ key: "note", dimColor: true, italic: true, children: report.note, wrap: "wrap" }) : null,
