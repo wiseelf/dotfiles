@@ -25,11 +25,14 @@ let held = null;
 
 export function register(on) {
   on("tool.call", { tool: "Bash" }, async ($, e, next) => {
-    const risks = classifyAll(String(e.command ?? ""));
-    if (risks.length === 0) {
+    const command = String(e.command ?? "");
+    if (classifyAll(command).length === 0) {
       return next(e);
     }
     const sessionCwd = await $.session.cwd();
+    // A variable not set on the line gets its value from the environment.
+    const env = command.includes("$") ? await readEnv($, sessionCwd) : {};
+    const risks = classifyAll(command, env);
     const risk = await firstHeldRisk($, risks, sessionCwd);
     if (risk === null) {
       return next(e);
@@ -52,7 +55,7 @@ export function register(on) {
     try {
       // Measure where the command will run: the session folder, moved by any
       // `cd dir &&` or `git -C dir` earlier in the same command line.
-      const cwd = risk.dir ? await resolveDir($, sessionCwd, risk.dir) : sessionCwd;
+      const cwd = risk.dir && !targetsIgnoreDir(risk) ? await resolveDir($, sessionCwd, risk.dir) : sessionCwd;
       mine.cwd = cwd;
       mine.report = clipReport(cwd === null
         ? { summary: `${risk.label} in ${risk.dir}`, lines: [], note: `Couldn't find the folder ${risk.dir}, so I couldn't measure what this would change.` }
@@ -146,13 +149,20 @@ export function classify(command) {
   return classifyAll(command)[0] ?? null;
 }
 
-/** Every risky segment of a shell command, in order. */
-export function classifyAll(command) {
+// Separators after which, or before which, a segment possibly does not run in this shell.
+const CONDITIONAL_BEFORE = new Set(["&&", "||", "|"]);
+
+/** Every risky segment of a shell command, in order. env gives the values of variables not set on the line. */
+export function classifyAll(command, env = {}) {
   const risks = [];
   let dir = null; // where a `cd` earlier on the line moved to; null means the session folder
   const scopes = []; // dir to restore when a ( subshell ) closes
   const pushed = []; // pushd stack, for popd
-  for (const raw of stripHeredocs(command).split(/&&|\|\||;|\||\n/)) {
+  const shell = newShellState(env);
+  // Odd indexes are the separators, so each segment knows what is around it.
+  const parts = stripHeredocs(command).split(/(&&|\|\||;|\||\n)/);
+  for (let i = 0; i < parts.length; i += 2) {
+    const raw = parts[i];
     const opens = (raw.match(/^\s*\(+/)?.[0].trim().length) ?? 0;
     // Trailing redirects and & don't hide a closing ) : `(cd sub && make) > log`.
     const tail = raw.replace(/(?:\s*(?:\d*>>?|&>>?|<)\s*\S+|\s*&)+\s*$/, "");
@@ -160,7 +170,9 @@ export function classifyAll(command) {
     for (let k = 0; k < opens; k += 1) {
       scopes.push(dir);
     }
-    const risk = classifySegment(raw, dir, pushed);
+    const isConditional = scopes.length > 0 || CONDITIONAL_BEFORE.has(parts[i - 1]) || parts[i + 1] === "|";
+    trackVariables(raw, shell, isConditional);
+    const risk = classifySegment(raw, dir, pushed, shell);
     if (risk !== null && risk.cd === undefined) {
       risks.push({ ...risk, segment: raw.trim() });
     } else if (risk !== null) {
@@ -197,7 +209,7 @@ export function stripHeredocs(command) {
 const PREFIXES = new Set(["command", "exec", "env", "nohup", "time", "then", "do", "else", "!"]);
 
 /** One segment: a risk, { cd } for a folder change, or null. */
-function classifySegment(segment, dir, pushed) {
+function classifySegment(segment, dir, pushed, shell) {
   {
     const words = tokenize(segment.trim().replace(/^[({]+\s*/, "").replace(/\s*[)}]+$/, ""));
     while (words.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) {
@@ -246,8 +258,9 @@ function classifySegment(segment, dir, pushed) {
       const recursive = flags.some((f) => f === "--recursive" || (/^-[^-]/.test(f) && /[rR]/.test(f)));
       const force = flags.some((f) => f === "--force" || (/^-[^-]/.test(f) && f.includes("f")));
       if (recursive || force) {
-        const targets = [...options.filter((a) => !flags.includes(a)), ...(end === -1 ? [] : args.slice(end + 1))];
-        return { kind: "rm", label: `rm ${flags.join(" ")}`.trim(), targets, dir };
+        const written = [...options.filter((a) => !flags.includes(a)), ...(end === -1 ? [] : args.slice(end + 1))];
+        const { targets, unresolved } = expandTargets(written, shell);
+        return { kind: "rm", label: `rm ${flags.join(" ")}`.trim(), targets, written, unresolved, dir };
       }
     }
     if (cmd === "git") {
@@ -398,10 +411,24 @@ async function resolveDir($, sessionCwd, dir) {
 // linked worktree inside the main worktree of the repo. The parent folder is
 // resolved, not the path itself, so a symlink is judged where it is, as rm
 // removes the link and not its target. A path that ends in "/" is resolved in
-// full, as rm then follows the link. A path that can't be resolved is held.
-const SAFE_RM_SCRIPT = `
+// full, as rm then follows the link. A part of the path that does not exist is
+// joined as text, with . and .. applied, so /tmp/new/dir is inside /tmp.
+// The script prints the real path of each target, then "allowed" or "held".
+export const SAFE_RM_SCRIPT = `
 shopt -s nullglob dotglob
 canon() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
+# The real path of folder $1: the deepest folder that exists, resolved, then the rest as text.
+real_dir() {
+  local p="$1" out part
+  local rest=()
+  [[ "$p" == /* ]] || p="$PWD/$p"
+  until [[ -d "$p" ]]; do rest=("$(basename -- "$p")" "\${rest[@]}"); p=$(dirname -- "$p"); done
+  out=$(canon "$p") || return 1
+  for part in "\${rest[@]}"; do
+    case "$part" in .|"") ;; ..) out=$(dirname -- "$out");; *) out="\${out%/}/$part";; esac
+  done
+  printf '%s\\n' "$out"
+}
 # True if $1 is a linked worktree inside the main worktree. Git runs in the
 # parent folder, so the session folder can be outside the repo.
 is_inner_worktree() {
@@ -422,7 +449,8 @@ allowed() {
   case "$1" in /tmp/?*|/private/tmp/?*) return 0;; esac
   is_inner_worktree "$1"
 }
-(( $# > 0 )) || exit 1
+(( $# > 0 )) || { echo held; exit 1; }
+verdict=allowed
 for t in "$@"; do
   case "$t" in "~"|"~/"*) t="$HOME\${t#\\~}";; esac
   if [[ "$t" == *[*?[]* ]]; then
@@ -434,55 +462,279 @@ for t in "$@"; do
   for m in "\${matches[@]}"; do
     p=""
     case "$m" in
-      */|.|..|*/.|*/..) p=$(canon "$m");;
-      *) d=$(canon "$(dirname -- "$m")") && p="$d/$(basename -- "$m")";;
+      */|.|..|*/.|*/..) p=$(real_dir "$m");;
+      *) d=$(real_dir "$(dirname -- "$m")") && p="\${d%/}/$(basename -- "$m")";;
     esac
-    [[ -n "$p" ]] && allowed "$p" || exit 1
+    printf 'path\\t%s\\n' "\${p:-$m}"
+    [[ -n "$p" ]] && allowed "$p" || verdict=held
   done
 done
-echo allowed
+echo "$verdict"
 `;
+
+/** The environment that a Bash command gets, as { NAME: value }. An error gives {}, so each variable is unknown. */
+async function readEnv($, cwd) {
+  try {
+    const run = await $.process.run(["env", "-0"], { cwd, timeoutMs: 5000 });
+    const pairs = run.stdout.split("\0").filter((l) => l.includes("="));
+    return Object.fromEntries(pairs.map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
+  } catch {
+    return {};
+  }
+}
+
+/** Runs SAFE_RM_SCRIPT: { isAllowed, paths }, where paths are the real paths rm would remove. */
+async function checkRm($, risk, cwd) {
+  const run = await $.process.run(["bash", "-c", SAFE_RM_SCRIPT, "blast-radius", ...risk.targets], { cwd, timeoutMs: 10000 });
+  const lines = run.stdout.split("\n").filter((l) => l !== "");
+  const paths = lines.filter((l) => l.startsWith("path\t")).map((l) => l.slice(5));
+  return { isAllowed: run.exitCode === 0 && lines.at(-1) === "allowed", paths };
+}
 
 /** The first risk that must be held, or null if each one is allowed. */
 async function firstHeldRisk($, risks, sessionCwd) {
   for (const risk of risks) {
-    if (!(await isAllowed($, risk, sessionCwd))) {
-      return risk;
+    const check = await isAllowed($, risk, sessionCwd);
+    if (!check.isAllowed) {
+      return check.paths.length > 0 ? { ...risk, paths: check.paths } : risk;
     }
   }
   return null;
 }
 
-/** True for an rm of allowed paths, or a force push to a branch that is not protected. */
+/** True for an rm whose targets are all absolute or in ~, so the folder of an earlier cd does not change them. */
+export function targetsIgnoreDir(risk) {
+  return risk.kind === "rm" && risk.targets.every((t) => t.startsWith("/") || t === "~" || t.startsWith("~/"));
+}
+
+/**
+ * { isAllowed, paths } for one risk. Allowed: an rm of allowed paths, or a force
+ * push to a branch that is not protected. paths: the real paths of an rm.
+ */
 async function isAllowed($, risk, sessionCwd) {
+  const held = { isAllowed: false, paths: [] };
   if (risk.kind !== "rm" && !risk.isCurrentBranch) {
-    return false;
+    return held;
   }
   try {
-    const cwd = risk.dir ? await resolveDir($, sessionCwd, risk.dir) : sessionCwd;
+    const cwd = risk.dir && !targetsIgnoreDir(risk) ? await resolveDir($, sessionCwd, risk.dir) : sessionCwd;
     if (cwd === null) {
-      return false;
+      return held;
     }
     if (risk.isCurrentBranch) {
       const branch = await currentPushBranch($, cwd);
-      return branch !== "" && branch !== "HEAD" && !isProtected(branch);
+      return { isAllowed: branch !== "" && branch !== "HEAD" && !isProtected(branch), paths: [] };
     }
-    const run = await $.process.run(["bash", "-c", SAFE_RM_SCRIPT, "blast-radius", ...risk.targets], { cwd, timeoutMs: 10000 });
-    return run.exitCode === 0 && run.stdout.trim() === "allowed";
+    const check = await checkRm($, risk, cwd);
+    // A path with a variable the mod can't know is never allowed.
+    return { isAllowed: check.isAllowed && risk.unresolved.length === 0, paths: check.paths };
   } catch {
-    return false; // anything unexpected holds the command
+    return held; // anything unexpected holds the command
   }
 }
 
-/** Splits one segment into words, honouring quotes. Good enough to read flags and paths. */
+/**
+ * Splits one segment into words as the shell does: quotes are removed and the
+ * parts of a word are joined, so /tmp/"$d" is one word /tmp/$d. A $ in single
+ * quotes stays, so it is treated as a variable: that can only hold more.
+ */
 function tokenize(text) {
   const words = [];
-  const re = /"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+)/g;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    words.push(m[1] ?? m[2] ?? m[3]);
+  let word = null;
+  let quote = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (quote === "'") {
+      if (ch === "'") quote = null;
+      else word += ch;
+    } else if (quote === '"') {
+      if (ch === '"') quote = null;
+      else if (ch === "\\" && i + 1 < text.length && '"\\$`'.includes(text[i + 1])) word += text[++i];
+      else word += ch;
+    } else if (/\s/.test(ch)) {
+      if (word !== null) words.push(word);
+      word = null;
+    } else if (ch === "'" || ch === '"') {
+      quote = ch;
+      word ??= "";
+    } else if (ch === "\\" && i + 1 < text.length) {
+      word = (word ?? "") + text[++i];
+    } else {
+      word = (word ?? "") + ch;
+    }
   }
+  if (word !== null) words.push(word);
   return words;
+}
+
+// ---- Shell variables in rm paths ------------------------------------------
+//
+// A path like /tmp/$d is checked with each value that $d can have on this
+// command line. A value comes from NAME=value, export/local/readonly NAME=value,
+// or `for NAME in words`. A name with no assignment on the line gets its value
+// from the environment. An assignment that possibly does not run (in if, while
+// or case, after && or ||, in a pipe or in a subshell) keeps the old value too.
+// A value the mod can't know ($(...), read, eval, a prefix assignment) makes the
+// path unresolved, and an rm with an unresolved path is always held.
+
+const MAX_PATHS = 50;
+const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const ASSIGN_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
+const VAR_REF_RE = /^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/;
+const BLOCK_STARTS = new Set(["if", "while", "until", "case", "select"]);
+const BLOCK_ENDS = new Set(["fi", "done", "esac"]);
+const BLOCK_WORDS = new Set(["then", "do", "else", "elif", "!"]);
+const DECLARES = new Set(["export", "local", "readonly", "declare", "typeset"]);
+const READS_INTO = new Set(["read", "mapfile", "readarray", "getopts", "unset"]);
+// After one of these, any variable can have any value.
+const OPAQUE = new Set(["eval", "source", ".", "let", "function"]);
+
+/** Variable state of one command line. A Set holds the possible values; null means unknown. */
+function newShellState(env) {
+  return { vars: new Map(), env, isOpaque: false, depth: 0 };
+}
+
+function valuesOf(state, name) {
+  if (state.isOpaque) {
+    return null;
+  }
+  if (state.vars.has(name)) {
+    return state.vars.get(name);
+  }
+  const value = state.env[name];
+  return value === undefined ? null : new Set([value]);
+}
+
+function assign(state, name, values, isConditional) {
+  if (values === null || !isConditional) {
+    state.vars.set(name, values);
+    return;
+  }
+  const before = valuesOf(state, name);
+  state.vars.set(name, before === null ? null : new Set([...before, ...values]));
+}
+
+/** Each value a word can have after $NAME and ${NAME} are put in, or null if one can't be known. */
+function expandWord(word, state) {
+  let results = [""];
+  let i = 0;
+  while (i < word.length) {
+    const ch = word[i];
+    if (ch === "`") {
+      return null;
+    }
+    if (ch !== "$") {
+      results = results.map((r) => r + ch);
+      i += 1;
+      continue;
+    }
+    const ref = VAR_REF_RE.exec(word.slice(i));
+    const values = ref === null ? null : valuesOf(state, ref[1] ?? ref[2]);
+    if (values === null) {
+      return null; // $(...), ${x:-y}, $1, $?, or a name with no known value
+    }
+    results = results.flatMap((r) => [...values].map((v) => r + v));
+    if (results.length > MAX_PATHS) {
+      return null;
+    }
+    i += ref[0].length;
+  }
+  return new Set(results);
+}
+
+function expandWords(words, state) {
+  const all = new Set();
+  for (const word of words) {
+    const values = expandWord(word, state);
+    if (values === null) {
+      return null;
+    }
+    values.forEach((v) => all.add(v));
+  }
+  return all;
+}
+
+/** Updates the variable state with the assignments of one segment. */
+function trackVariables(segment, state, isConditional) {
+  const words = tokenize(segment.trim().replace(/^[({]+\s*/, "").replace(/\s*[)}]+$/, ""));
+  while (words.length > 0 && BLOCK_WORDS.has(words[0])) {
+    words.shift();
+  }
+  if (words.length === 0) {
+    return;
+  }
+  if (BLOCK_ENDS.has(words[0])) {
+    state.depth = Math.max(0, state.depth - 1);
+    return;
+  }
+  if (OPAQUE.has(words[0]) || /\(\)$/.test(words[0]) || segment.includes("((")) {
+    state.isOpaque = true;
+    return;
+  }
+  const inBlock = isConditional || state.depth > 0;
+  if (words[0] === "for") {
+    const [, name, keyword, ...list] = words;
+    if (name !== undefined && NAME_RE.test(name)) {
+      const isLiteralList = keyword === "in" && list.length > 0 && list.every((w) => !/[*?[]/.test(w));
+      assign(state, name, isLiteralList ? expandWords(list, state) : null, inBlock);
+    }
+    state.depth += 1;
+    return;
+  }
+  if (BLOCK_STARTS.has(words[0])) {
+    state.depth += 1;
+    words.shift();
+  }
+  const isConditionalHere = inBlock || state.depth > 0;
+  if (words.every((w) => ASSIGN_RE.test(w))) {
+    for (const w of words) {
+      const [, name, value] = ASSIGN_RE.exec(w);
+      assign(state, name, expandWord(value, state), isConditionalHere);
+    }
+    return;
+  }
+  if (DECLARES.has(words[0])) {
+    for (const w of words.slice(1).filter((a) => !a.startsWith("-"))) {
+      const m = ASSIGN_RE.exec(w);
+      if (m !== null) {
+        assign(state, m[1], expandWord(m[2], state), isConditionalHere);
+      } else if (NAME_RE.test(w)) {
+        assign(state, w, null, false);
+      }
+    }
+    return;
+  }
+  // Any other way to set a name: read d, printf -v d, a case arm `a) d=x`, or
+  // a prefix `d=x cmd` (it does not change $d in the words of cmd).
+  const setsNames = READS_INTO.has(words[0]) || (words[0] === "printf" && words.includes("-v"));
+  for (const w of words) {
+    const m = ASSIGN_RE.exec(w);
+    if (m !== null) {
+      assign(state, m[1], null, false);
+    } else if (setsNames && NAME_RE.test(w)) {
+      assign(state, w, null, false);
+    }
+  }
+}
+
+/** rm targets with variables put in: { targets, unresolved }. */
+function expandTargets(targets, state) {
+  const expanded = [];
+  const unresolved = [];
+  for (const target of targets) {
+    if (!/[$`]/.test(target)) {
+      expanded.push(target);
+      continue;
+    }
+    const values = expandWord(target, state);
+    if (values === null) {
+      unresolved.push(target);
+      expanded.push(target);
+    } else {
+      expanded.push(...values);
+    }
+  }
+  return { targets: expanded, unresolved };
 }
 
 // ---- Infrastructure tools (local additions) -------------------------------
@@ -619,7 +871,17 @@ echo "$files $(( \${kb:-0} * 1024 )) \${#paths[@]}"
 find "\${paths[@]}" \\( -type f -o -type l \\) 2>/dev/null | head -n ${LIST_MAX}
 `;
 
+/** The note under an rm report: the paths as written and, if they differ, as resolved. */
+function rmPathsNote(risk) {
+  const written = risk.written ?? risk.targets;
+  const real = risk.paths ?? risk.targets;
+  return written.join(" ") === real.join(" ") ? `Paths: ${real.join(" ")}` : `Paths: ${written.join(" ")} → ${real.join(" ")}`;
+}
+
 async function measureRm($, risk, cwd) {
+  if (risk.unresolved?.length > 0) {
+    return { summary: `${risk.label} ${risk.unresolved.join(" ")}`, lines: [], note: `I can't know the value of a variable in ${risk.unresolved.join(" ")}, so I can't find the exact path.` };
+  }
   if (risk.targets.length === 0) {
     return { summary: "rm with no paths", lines: [], note: "No paths to expand." };
   }
@@ -631,13 +893,13 @@ async function measureRm($, risk, cwd) {
     return { summary: `delete nothing: no file matches ${what}`, lines: [], note: "The paths don't exist, so rm has nothing to remove." };
   }
   if (!files) {
-    return { summary: `delete ${found} ${found === 1 ? "path" : "paths"} with no files in ${found === 1 ? "it" : "them"}`, lines: [], note: `Paths: ${risk.targets.join(" ")}` };
+    return { summary: `delete ${found} ${found === 1 ? "path" : "paths"} with no files in ${found === 1 ? "it" : "them"}`, lines: [], note: rmPathsNote(risk) };
   }
   return {
     summary: `delete ${files} ${files === 1 ? "file" : "files"} (about ${size(bytes)})`,
     lines: rest.map((l) => l.replace(/^\.\//, "")),
     more: Math.max(0, files - rest.length),
-    note: `Paths: ${risk.targets.join(" ")}`,
+    note: rmPathsNote(risk),
   };
 }
 
@@ -896,6 +1158,7 @@ function textRows(text) {
 export function riskTargets(risk) {
   switch (risk.kind) {
     case "rm":
+      return risk.paths ?? risk.targets; // the real paths, after variables and .. are resolved
     case "kubectl-delete":
       return risk.targets;
     case "helm-uninstall":
