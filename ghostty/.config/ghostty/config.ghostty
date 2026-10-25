@@ -8,8 +8,9 @@ font-family = Hack Nerd Font Mono
 font-size = 14
 
 # Block cursor, the same as iTerm2. Shell integration changes the cursor to a bar at the prompt, so disable that feature.
+# ssh-terminfo: ssh installs the xterm-ghostty terminfo entry on a remote host that does not have it.
 cursor-style = block
-shell-integration-features = no-cursor
+shell-integration-features = no-cursor,ssh-terminfo
 
 # Left Option sends Alt for shell and tmux keys. Right Option types special characters.
 macos-option-as-alt = left
