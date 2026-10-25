@@ -12,6 +12,9 @@ Modular zsh dotfiles managed with [stow](https://www.gnu.org/software/stow/).
 | `claude` | [Claude Code](https://claude.ai/code) agents, skills, rules |
 | `claude-mods` | Claude Code [mods](https://code.claude.com/docs/en/plugins/mods/overview) (stowed with folding) |
 | `mc` | midnight commander + catppuccin skin |
+| `ghostty` | [Ghostty](https://ghostty.org) config + [catppuccin](https://github.com/catppuccin/ghostty) theme |
+| `tmux` | tmux config + session picker for Claude Code sessions + [catppuccin](https://github.com/catppuccin/tmux) theme (cloned by `install.sh`) |
+| `zed` | [Zed](https://zed.dev) settings + agent rules. Extensions install automatically. |
 
 **Plugin manager**: [antidote](https://github.com/mattmc3/antidote) (static bundle — zero startup cost)
 **Syntax highlighting**: [zsh-patina](https://github.com/michel-kraemer/zsh-patina)
@@ -42,6 +45,22 @@ stow --no-folding --target=$HOME zsh        # shell only (e.g. remote servers)
 stow --no-folding --target=$HOME zsh btop   # shell + system monitor
 stow --target=$HOME claude-mods             # mods: one folder link, no --no-folding
 ```
+
+## Claude Code sessions in tmux
+
+Each project has one tmux session with Claude Code in it. The sessions keep running when you close the terminal.
+
+| Do this | Press |
+|---------|-------|
+| Go to the session of the current folder. A new session starts Claude. | `cs` |
+| Pick a session from `$HOME` or a new terminal | `cs` |
+| Pick a session (popup with preview) | `Cmd+j` or `Ctrl+a f` |
+| Previous / next session | `Cmd+Shift+←` / `Cmd+Shift+→` or `Ctrl+a ←` / `Ctrl+a →` |
+| Leave the session, keep it running | `Ctrl+a d` |
+| New window in the session (for a shell) | `Ctrl+a c` |
+| Open a link (tmux gets plain clicks) | `Cmd+Shift+click` |
+
+The status bar shows all sessions. `●` shows that Claude asks for permission or asks you a question. Claude Code hooks in `settings.json` set this state with `~/.config/tmux/claude-state.sh`.
 
 ## Claude Code mods
 

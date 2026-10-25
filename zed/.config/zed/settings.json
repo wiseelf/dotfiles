@@ -1,0 +1,123 @@
+// Zed settings
+//
+// For information on how to configure Zed, see the Zed
+// documentation: https://zed.dev/docs/configuring-zed
+//
+// To see all of Zed's default settings without changing your
+// custom settings, run `zed: open default settings` from the
+// command palette (cmd-shift-p / ctrl-shift-p)
+//
+// This file is public. Zed writes new SSH hosts into "ssh_connections" here: do not commit them.
+{
+  "auto_install_extensions": {
+    "ansible": true,
+    "catppuccin": true,
+    "catppuccin-icons": true,
+    "docker-compose": true,
+    "dockerfile": true,
+    "git-firefly": true,
+    "helm": true,
+    "html": true,
+    "make": true,
+    "swift": true,
+    "terraform": true,
+    "vue": true,
+  },
+  "markdown_preview": {
+    "font_size": 14.0
+  },
+  "buffer_font_weight": 400.0,
+  "cli_default_open_behavior": "new_window",
+  "collaboration_panel": {
+    "dock": "left"
+  },
+  "agent": {
+    "dock": "right",
+    "favorite_models": [],
+    "model_parameters": []
+  },
+  "git_panel": {
+    "dock": "left"
+  },
+  "agent_buffer_font_size": 14.0,
+  "agent_ui_font_size": 14.0,
+  "ui_font_family": ".ZedSans",
+  "buffer_font_family": "JetBrains Mono",
+  "outline_panel": {
+    "dock": "left",
+    "git_status": true,
+  },
+  "file_finder": {
+    "include_ignored": "smart",
+  },
+  "agent_servers": {
+    "claude-acp": {
+      "type": "registry"
+    },
+    "codex-acp": {
+      "type": "registry"
+    },
+    "cursor": {
+      "type": "registry",
+    },
+  },
+  "icon_theme": {
+    "mode": "dark",
+    "light": "Zed (Default)",
+    "dark": "Catppuccin Mocha",
+  },
+  "telemetry": {
+    "diagnostics": false,
+    "metrics": false,
+  },
+  "terminal": {
+    "copy_on_select": true,
+    "working_directory": "first_project_directory",
+    "env": {
+      "EDITOR": "zed --wait",
+    },
+    "detect_venv": {
+      "on": {
+        "directories": [".venv", "venv"],
+        "activate_script": "default",
+      },
+    },
+  },
+  "project_panel": {
+    "folder_indicator": "icon",
+    "dock": "left",
+    "drag_and_drop": true,
+    "bold_folder_labels": false,
+    "hide_hidden": false,
+    "hide_root": false,
+    "git_status": true,
+    "file_icons": true,
+    "hide_gitignore": false,
+    "auto_fold_dirs": false,
+  },
+  "preview_tabs": {
+    "enable_keep_preview_on_code_navigation": true,
+  },
+  "minimap": {
+    "show": "never",
+  },
+  "autosave": {
+    "after_delay": {
+      "milliseconds": 1000,
+    },
+  },
+  "file_types": {
+    "terraform": ["*.hcl"],
+    "python": ["*.py"],
+  },
+  "auto_indent_on_paste": true,
+  "use_on_type_format": true,
+  "base_keymap": "VSCode",
+  "ui_font_size": 14.0,
+  "buffer_font_size": 14.0,
+  "theme": {
+    "mode": "dark",
+    "light": "One Light",
+    "dark": "Catppuccin Mocha",
+  },
+}

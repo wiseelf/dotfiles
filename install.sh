@@ -5,10 +5,11 @@ PLATFORM="$(uname -s)"
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRIVATE_DIR="${PRIVATE_DIR:-$(dirname "$DOTFILES_DIR")/private}"
 
-PUBLIC_PACKAGES=(zsh starship btop claude mc)
+PUBLIC_PACKAGES=(zsh starship btop claude mc ghostty tmux zed)
 # Stowed as one folder link: Claude Code refuses a mod file that is a symlink out of its plugin folder.
 FOLDED_PACKAGES=(claude-mods)
 PRIVATE_PACKAGES=(zsh)
+CATPPUCCIN_TMUX_VERSION=v2.3.2
 
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mWARN\033[0m %s\n' "$*"; }
@@ -91,6 +92,20 @@ install_patina_linux() {
   fi
 }
 
+# Upstream recommends a manual clone instead of TPM.
+install_catppuccin_tmux() {
+  local dir="$HOME/.config/tmux/plugins/catppuccin/tmux"
+  if [[ -d $dir ]]; then
+    log "catppuccin/tmux: checkout $CATPPUCCIN_TMUX_VERSION"
+    git -C "$dir" fetch -q --depth=1 origin tag "$CATPPUCCIN_TMUX_VERSION"
+    git -C "$dir" -c advice.detachedHead=false checkout -q "$CATPPUCCIN_TMUX_VERSION"
+    return
+  fi
+  log "Cloning catppuccin/tmux $CATPPUCCIN_TMUX_VERSION"
+  git clone -q -c advice.detachedHead=false --depth=1 -b "$CATPPUCCIN_TMUX_VERSION" \
+    https://github.com/catppuccin/tmux.git "$dir"
+}
+
 # Usage: stow_packages <dir> [--fold] <packages...>
 stow_packages() {
   local dir=$1; shift
@@ -130,6 +145,7 @@ main() {
   install_patina_linux
   stow_packages "$DOTFILES_DIR" "${PUBLIC_PACKAGES[@]}"
   stow_packages "$DOTFILES_DIR" --fold "${FOLDED_PACKAGES[@]}"
+  install_catppuccin_tmux
   stow_private
   log "Done — start a new shell: exec zsh"
 }
