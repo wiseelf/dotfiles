@@ -67,6 +67,8 @@ export function register(on) {
         mine.where = "band";
       }
       $.ui.invalidate("ui.render");
+      // The pane is not a permission prompt, so the Notification hook does not fire.
+      await setAttentionState($, "waiting");
 
       const startedAt = await $.clock.now();
       while (mine.decision === null) {
@@ -97,6 +99,7 @@ export function register(on) {
         held = null;
       }
       $.ui.invalidate("ui.render");
+      await setAttentionState($, "working");
     }
 
     if (decision === "proceed") {
@@ -127,6 +130,23 @@ export function register(on) {
     }
     return draw($.ui.resolve(e), held);
   });
+}
+
+// The tmux status bar shows the state of each session (see tmux/claude-state.sh).
+// The script exits when Claude does not run in tmux. A failure only loses the marker.
+const ATTENTION_SCRIPT = `
+script="$HOME/.config/tmux/claude-state.sh"
+[[ -x $script ]] && "$script" "$1"
+exit 0
+`;
+
+/** Sets the tmux state of this session to "waiting" or "working". Never throws. */
+async function setAttentionState($, state) {
+  try {
+    await $.process.run(["bash", "-c", ATTENTION_SCRIPT, "blast-radius", state], { timeoutMs: 5000 });
+  } catch {
+    // no tmux marker
+  }
 }
 
 // ---- What counts as risky -------------------------------------------------
