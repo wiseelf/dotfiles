@@ -20,7 +20,6 @@
       "CronList"
     ]
   },
-  "model": "opus",
   "skillOverrides": {
     "batch-grill-me": "off",
     "claude-handoff": "off",
@@ -42,6 +41,26 @@
   "statusLine": {
     "type": "command",
     "command": "bash $HOME/.claude/statusline-command.sh"
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "$HOME/.config/tmux/claude-state.sh working" }] }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt|elicitation_dialog",
+        "hooks": [{ "type": "command", "command": "$HOME/.config/tmux/claude-state.sh waiting" }]
+      }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "$HOME/.config/tmux/claude-state.sh working" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "$HOME/.config/tmux/claude-state.sh done" }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "$HOME/.config/tmux/claude-state.sh" }] }
+    ]
   },
   "enabledPlugins": {
     "code-simplifier@claude-plugins-official": true,

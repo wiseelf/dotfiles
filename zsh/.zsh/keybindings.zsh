@@ -11,6 +11,9 @@ bindkey '^[[B' history-substring-search-down
 # Home / End
 bindkey "^[[H" beginning-of-line
 bindkey "^[[F" end-of-line
+# Home / End codes of the current terminal (inside tmux: ^[[1~ and ^[[4~)
+bindkey "${terminfo[khome]}" beginning-of-line
+bindkey "${terminfo[kend]}" end-of-line
 
 # Open buffer line in editor
 zle -N edit-command-line

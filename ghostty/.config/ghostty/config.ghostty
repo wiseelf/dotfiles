@@ -1,0 +1,33 @@
+# Ghostty config. Reference: https://ghostty.org/docs/config/reference
+
+# Theme from catppuccin/ghostty, kept in themes/.
+theme = catppuccin-mocha.conf
+
+# Same font as the iTerm2 "starship" profile.
+font-family = Hack Nerd Font Mono
+font-size = 14
+
+# Left Option sends Alt for shell and tmux keys. Right Option types special characters.
+macos-option-as-alt = left
+
+window-save-state = always
+
+# Standard macOS title bar and tabs. The "tabs" style breaks tab switching on macOS 27.
+macos-titlebar-style = native
+
+# A new tab or window starts in $HOME, not in the folder of the current one.
+tab-inherit-working-directory = false
+window-inherit-working-directory = false
+
+# Drop-down terminal from any app. A global key needs the Accessibility permission.
+quick-terminal-position = top
+keybind = global:cmd+grave_accent=toggle_quick_terminal
+
+# tmux keys that work with all input languages. \x01 is the tmux prefix Ctrl+a.
+keybind = cmd+j=text:\x01f
+# Previous / next session. tmux "(" and ")" have no repeat, so arrow keys stay with Claude.
+keybind = cmd+shift+arrow_left=text:\x01(
+keybind = cmd+shift+arrow_right=text:\x01)
+
+# Cmd+Left sends Home. The default sends Ctrl+a, which is the tmux prefix.
+keybind = cmd+arrow_left=csi:H
