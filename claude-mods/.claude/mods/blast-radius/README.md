@@ -19,6 +19,17 @@ An `rm -r`/`rm -f` runs and is not held if each path is one of these:
 - A path inside `/tmp` (not `/tmp` itself).
 - A linked worktree inside the main worktree of its repo (for example `.worktrees/feature`). Files inside a worktree are still held.
 
+If each path is absolute or starts with `~`, the mod ignores an earlier `cd` on the line. So `cd $d; rm -rf /tmp/x` is not held because of `$d`.
+
+The mod checks the real path, not the text:
+
+- It puts in each value that a variable can have on the line: `d=…`, `export d=…`, `for d in …`. A variable with no assignment on the line gets its value from the environment.
+- An assignment that possibly does not run (in `if`/`while`/`case`, after `&&`/`||`, in a pipe or in `( )`) keeps the old value too. Each value must pass.
+- It resolves the deepest folder that exists, symlinks included. Then it applies `.` and `..` to the rest. So `/tmp/$d` with `d=../Users/x` is `/private/Users/x` and is held.
+- A value it can't know (`$(…)`, `` `…` ``, `read`, `eval`, `d=x rm …`) makes the path unresolved. An unresolved `rm` is always held.
+
+The pane shows the real paths, and the note shows the paths as written.
+
 The mod holds a git push or branch command only if it deletes or force-pushes `main` or `master`:
 
 - `git push --force`, `-f`, `--force-with-lease`, or `+ref` to `main`/`master`. A force push with no refspec is held if the current branch pushes to `main`/`master`.
