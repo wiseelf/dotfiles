@@ -1,5 +1,5 @@
 import { describe, expect, test } from "claude-code/testing";
-import { classify, classifyAll, manifestResources, riskTargets, stripHeredocs } from "../hooks/blast-radius.mjs";
+import { classify, classifyAll, manifestResources, riskTargets, stripHeredocs, targetsIgnoreDir } from "../hooks/blast-radius.mjs";
 
 describe("classifyAll", () => {
   test("returns every risky segment, so an allowed rm can't hide a later one", () => {
@@ -169,5 +169,64 @@ describe("riskTargets", () => {
 
   test("returns null for a kind with no targets", () => {
     expect(riskTargets(classify("git reset --hard")!)).toBe(null);
+  });
+});
+
+describe("targetsIgnoreDir", () => {
+  test("is true when each rm target is absolute, so an unknown cd folder does not matter", () => {
+    const risk = classify("for d in a b; do cd $d; done; rm -rf /tmp/cstest ~/scratch")!;
+    expect(risk.dir).toBe("$d");
+    expect(targetsIgnoreDir(risk)).toBe(true);
+  });
+
+  test("is false when an rm target is relative to the cd folder", () => {
+    expect(targetsIgnoreDir(classify("cd $d && rm -rf /tmp/x build")!)).toBe(false);
+  });
+
+  test("is false for a kind that is not rm", () => {
+    expect(targetsIgnoreDir(classify("cd /tmp && git reset --hard")!)).toBe(false);
+  });
+});
+
+describe("rm paths with shell variables", () => {
+  const rm = (command: string, env: Record<string, string> = {}) => {
+    const risk = classifyAll(command, env).find((r) => r.kind === "rm")!;
+    return { targets: risk.targets, unresolved: risk.unresolved };
+  };
+
+  test("puts in a value from the same line", () => {
+    expect(rm("d=../home/x; rm -rf /tmp/$d")).toEqual({ targets: ["/tmp/../home/x"], unresolved: [] });
+    expect(rm('d=something/bla; rm -rf "/tmp/${d}"')).toEqual({ targets: ["/tmp/something/bla"], unresolved: [] });
+  });
+
+  test("removes quotes, so /tmp/\"$d\" is not checked as text", () => {
+    expect(rm('d="../etc"; rm -rf /tmp/"$d"').targets).toEqual(["/tmp/../etc"]);
+  });
+
+  test("checks each value of a for loop", () => {
+    expect(rm("for d in a ../b; do rm -rf /tmp/$d; done").targets).toEqual(["/tmp/a", "/tmp/../b"]);
+  });
+
+  test("keeps the old value when an assignment possibly does not run", () => {
+    expect(rm("d=a; if x; then d=../etc; fi; rm -rf /tmp/$d").targets).toEqual(["/tmp/a", "/tmp/../etc"]);
+    expect(rm("d=a; [ -n x ] && d=../etc; rm -rf /tmp/$d").targets).toEqual(["/tmp/a", "/tmp/../etc"]);
+    expect(rm("d=a; (d=../etc); rm -rf /tmp/$d").targets).toEqual(["/tmp/a", "/tmp/../etc"]);
+  });
+
+  test("uses the environment for a name with no assignment on the line", () => {
+    expect(rm("rm -rf $TMPDIR/x", { TMPDIR: "/tmp/" }).targets).toEqual(["/tmp//x"]);
+  });
+
+  test("marks a path unresolved when a value can't be known", () => {
+    expect(rm("rm -rf /tmp/$d").unresolved).toEqual(["/tmp/$d"]);
+    expect(rm('rm -rf "/tmp/$(echo ..)/x"').unresolved).toEqual(["/tmp/$(echo ..)/x"]);
+    expect(rm("read d; rm -rf /tmp/$d", { d: "a" }).unresolved).toEqual(["/tmp/$d"]);
+    expect(rm("eval x; d=a; rm -rf /tmp/$d").unresolved).toEqual(["/tmp/$d"]);
+    expect(rm("case $x in a) d=../etc;; esac; rm -rf /tmp/$d", { d: "a" }).unresolved).toEqual(["/tmp/$d"]);
+    expect(rm("d=a rm -rf /tmp/$d").unresolved).toEqual(["/tmp/$d"]);
+  });
+
+  test("keeps a path with no variables as it is", () => {
+    expect(rm("rm -rf /tmp/x 'a b'")).toEqual({ targets: ["/tmp/x", "a b"], unresolved: [] });
   });
 });
