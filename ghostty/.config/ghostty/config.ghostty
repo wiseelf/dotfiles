@@ -7,10 +7,17 @@ theme = catppuccin-mocha.conf
 font-family = Hack Nerd Font Mono
 font-size = 14
 
+# Block cursor, the same as iTerm2. Shell integration changes the cursor to a bar at the prompt, so disable that feature.
+cursor-style = block
+shell-integration-features = no-cursor
+
 # Left Option sends Alt for shell and tmux keys. Right Option types special characters.
 macos-option-as-alt = left
 
 window-save-state = always
+
+# Shift+drag selects text past the mouse capture of tmux and Claude Code. The selection goes to the clipboard.
+copy-on-select = clipboard
 
 # Standard macOS title bar and tabs. The "tabs" style breaks tab switching on macOS 27.
 macos-titlebar-style = native
