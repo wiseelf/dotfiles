@@ -40,6 +40,8 @@ The mod examines every segment of a command line, so one allowed `rm` does not l
 
 The pane does not show the whole command, so it does not scroll. It shows the tool, its flags and its folder, then the first 5 targets and the number of the others. A command with no targets (`git reset --hard`, migrations) shows its risky segment, cut at 240 characters. It shows one button on each row. Use ↑/↓ and Enter, or press `1` (Proceed) or `2` (Cancel).
 
+When the pane waits for an answer, the mod sets the tmux state of the session to `waiting` with `~/.config/tmux/claude-state.sh`. The status bar then shows `●`. The pane is not a permission prompt, so the `Notification` hook does not fire for it.
+
 ## Load
 
 `settings.json` sets `CLAUDE_CODE_PLUGIN_DIRS` to `~/.claude/mods`. Stow links the `mods` folder there. Each session loads the mod and reloads it when a file changes.
