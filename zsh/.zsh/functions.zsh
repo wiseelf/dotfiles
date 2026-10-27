@@ -14,11 +14,8 @@ function cs() {
     return
   fi
 
-  local name=${${PWD:t}//[.:]/_}
-  local existing_path
-  existing_path=$(tmux display-message -p -t "=$name:" '#{session_path}' 2>/dev/null)
-  # Two folders with the same name: add the parent folder to the session name.
-  [[ -n $existing_path && $existing_path != $PWD ]] && name=${${PWD:h:t}//[.:]/_}-$name
+  local name
+  name=$(~/.config/tmux/session-name.sh "$PWD") || return
 
   tmux has-session -t "=$name" 2>/dev/null || tmux new-session -d -s "$name" -c "$PWD" "${commands[claude]}"
   if [[ -n $TMUX ]]; then

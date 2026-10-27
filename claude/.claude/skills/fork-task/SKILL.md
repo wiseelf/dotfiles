@@ -7,7 +7,7 @@ allowed-tools: Bash, Read, Write
 
 # Fork a task to another directory
 
-Write a handoff document, then start a new `claude` session in the target directory. Do not watch the new session.
+Write a handoff document, then start a new `claude` session in the tmux session of the target directory. Do not watch the new session.
 
 ## Inputs
 
@@ -27,13 +27,13 @@ If an input is missing, ask the user.
    - Remove secrets: tokens, passwords, keys, and decrypted values. Refer to a secret by its name or path.
    - Use absolute paths. The new session starts in a different directory.
    - If the target is not a git repo, remove the two git rules (commit or push, new branch) from the "Do not" section.
-3. Start the session. The `<source-dir>` is the working directory of this session. If the user asks for a specific terminal, set `FORK_TASK_TERMINAL` to `iterm`, `terminal`, `tmux`, or `bg`.
+3. Start the session. The `<source-dir>` is the working directory of this session. The script uses the tmux session name that `cs` uses. If that session exists, the script adds a window to it.
 
    ```bash
    bash <skill-dir>/open-session.sh <target-dir> "Read the handoff document <document-path> and do the task in it. When you finish, report only the facts that affect the source task in <source-dir>: contract changes, blockers, and open questions. If no fact affects it, say so."
    ```
 
-4. Tell the user the document path and the script output. If the output has an `attach` or `claude agents` command, show that command. If Claude Code did not open the directory before, the new session first asks the user to trust the folder.
+4. Tell the user the document path and the script output, with its `cs` command. If Claude Code did not open the directory before, the new session first asks the user to trust the folder.
 
 ## Handoff document template
 
