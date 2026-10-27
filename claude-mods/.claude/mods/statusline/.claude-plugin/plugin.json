@@ -1,0 +1,9 @@
+{
+  "name": "statusline",
+  "version": "0.5.0",
+  "description": "The ccstatusline figures in one row, drawn in-process above the prompt hint line: model, effort, context tokens, then on a subscription the 5-hour use and the weekly pace, or on a metered account the session cost and the monthly limit in dollars; skill, directory, git branch and diff",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "Dmytro Sirant"
+  }
+}
