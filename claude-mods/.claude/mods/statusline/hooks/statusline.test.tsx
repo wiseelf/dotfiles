@@ -76,20 +76,16 @@ test('countdown, homeShort and parseGit read as the old widgets did', () => {
 })
 
 test('the row parts hold each figure and drop the parts that do not fit', () => {
-  expect(usageParts(snap(), 'pr').map(p => p.text)).toEqual([
-    'Opus 5.5',
-    'Ctx 120k/200k 60%',
-    'Pace →82%',
-    'Skill pr',
-  ])
+  expect(usageParts(snap()).map(p => p.text)).toEqual(['Opus 5.5', 'Ctx 120k/200k 60%', 'Pace →82%'])
+  expect(placeParts(snap(), 'pr').map(p => p.text)).toEqual(['Skill pr', '~/.claude/mods', '\uf09b', '⎇ main'])
   const nearLimit = (percent: number) =>
-    usageParts(snap({ fiveHour: { percent, resetsAt: NOW + 2 * HOUR + 13 * 60_000 } }), null).map(p => p.text)
+    usageParts(snap({ fiveHour: { percent, resetsAt: NOW + 2 * HOUR + 13 * 60_000 } })).map(p => p.text)
   expect(nearLimit(90)).toEqual(['Opus 5.5', 'Ctx 120k/200k 60%', 'Pace →82%'])
   expect(nearLimit(91)).toEqual(['Opus 5.5', 'Ctx 120k/200k 60%', '5h 91%', 'Pace →82%', 'Reset 2h13m'])
-  expect(usageParts(snap({ sevenDay: { percent: 70, resetsAt: NOW + 3.5 * 24 * HOUR } }), null).find(p => p.text.startsWith('Pace'))?.color).toBe('#cc0000')
-  expect(usageParts(snap(), null, 'high').map(p => p.text).slice(0, 3)).toEqual(['Opus 5.5', 'Effort high', 'Ctx 120k/200k 60%'])
-  expect(usageParts(snap({ contextTokens: null }), null).map(p => p.text)[1]).toBe('Ctx 60%')
-  expect(usageParts(snap({ contextPercent: null, fiveHour: null, sevenDay: null, costUsd: 0 }), null).map(p => p.text)).toEqual(['Opus 5.5'])
+  expect(usageParts(snap({ sevenDay: { percent: 70, resetsAt: NOW + 3.5 * 24 * HOUR } })).find(p => p.text.startsWith('Pace'))?.color).toBe('#cc0000')
+  expect(usageParts(snap(), 'high').map(p => p.text).slice(0, 3)).toEqual(['Opus 5.5', 'Effort high', 'Ctx 120k/200k 60%'])
+  expect(usageParts(snap({ contextTokens: null })).map(p => p.text)[1]).toBe('Ctx 60%')
+  expect(usageParts(snap({ contextPercent: null, fiveHour: null, sevenDay: null, costUsd: 0 })).map(p => p.text)).toEqual(['Opus 5.5'])
   const wt = placeParts(snap({ git: { root: 'b', top: '/r/h/.claude/worktrees/b', branch: 'wt-b', worktree: 'b', webUrl: 'https://gitlab.tools.nmi.com/g/p', added: 12, removed: 3 } }))
   expect(wt).toEqual([
     { text: '~/.claude/mods' },
@@ -101,7 +97,7 @@ test('the row parts hold each figure and drop the parts that do not fit', () => 
   expect(placeParts(snap()).map(p => p.text)).toEqual(['~/.claude/mods', '\uf09b', '⎇ main'])
   const local = placeParts(snap({ git: { root: 'x', top: '/x', branch: 'main', worktree: null, webUrl: null, added: 0, removed: 0 } }))
   expect(local[1]).toEqual({ text: '\ue702', color: 'magenta' })
-  expect(fit(usageParts(snap(), null), 35).map(p => p.text)).toEqual(['Opus 5.5', 'Ctx 120k/200k 60%'])
+  expect(fit(usageParts(snap()), 35).map(p => p.text)).toEqual(['Opus 5.5', 'Ctx 120k/200k 60%'])
   expect(fit([{ text: 'a very long model name' }], 5).map(p => p.text)).toEqual(['a very long model name'])
   // A joined part takes one column before it, not the separator's three.
   expect(fit([{ text: 'ab' }, { text: 'cd', isJoined: true }], 5).map(p => p.text)).toEqual(['ab', 'cd'])
@@ -119,27 +115,26 @@ test('webUrl turns a git remote into the page a browser opens', () => {
 
 test('a metered account shows the session cost and the monthly limit left in place of the windows', () => {
   const metered = (over: Partial<Snapshot> = {}) =>
-    usageParts(snap({ fiveHour: null, sevenDay: null, costUsd: 1.237, ...over }), 'pr')
+    usageParts(snap({ fiveHour: null, sevenDay: null, costUsd: 1.237, ...over }))
   const monthEnd = NOW + 5 * 24 * HOUR + 3 * HOUR
-  expect(metered().map(p => p.text)).toEqual(['Opus 5.5', 'Ctx 120k/200k 60%', 'Session $1.24', 'Skill pr'])
+  expect(metered().map(p => p.text)).toEqual(['Opus 5.5', 'Ctx 120k/200k 60%', 'Session $1.24'])
   expect(metered({ spendLimit: { percent: 37, resetsAt: monthEnd, usedUsd: null, limitUsd: null } }).map(p => p.text)).toEqual([
     'Opus 5.5',
     'Ctx 120k/200k 60%',
     'Session $1.24',
     'Month 63% left',
-    'Skill pr',
   ])
   const low = metered({ spendLimit: { percent: 85.5, resetsAt: monthEnd, usedUsd: null, limitUsd: null } })
-  expect(low.map(p => p.text)).toEqual(['Opus 5.5', 'Ctx 120k/200k 60%', 'Session $1.24', 'Month 15% left', 'Reset 5d3h', 'Skill pr'])
+  expect(low.map(p => p.text)).toEqual(['Opus 5.5', 'Ctx 120k/200k 60%', 'Session $1.24', 'Month 15% left', 'Reset 5d3h'])
   expect(low.find(p => p.text.startsWith('Month'))?.color).toBe('yellow')
   const over = metered({ spendLimit: { percent: 104, resetsAt: monthEnd, usedUsd: null, limitUsd: null } })
   expect(over.find(p => p.text.startsWith('Month'))).toEqual({ text: 'Month limit reached', color: '#cc0000' })
   const withDollars = metered({ spendLimit: { percent: 37, resetsAt: monthEnd, usedUsd: 296, limitUsd: 800 } })
   expect(withDollars.find(p => p.text.startsWith('Month'))?.text).toBe('Month $296/$800 63% left')
   // Before the first priced response neither plan shows a cost.
-  expect(metered({ costUsd: 0 }).map(p => p.text)).toEqual(['Opus 5.5', 'Ctx 120k/200k 60%', 'Skill pr'])
+  expect(metered({ costUsd: 0 }).map(p => p.text)).toEqual(['Opus 5.5', 'Ctx 120k/200k 60%'])
   // A subscription never shows the cost.
-  expect(usageParts(snap({ costUsd: 3 }), null).some(p => p.text.startsWith('Session'))).toBe(false)
+  expect(usageParts(snap({ costUsd: 3 })).some(p => p.text.startsWith('Session'))).toBe(false)
 })
 
 test('parseSpend reads the usage endpoint the way /usage shows it', () => {

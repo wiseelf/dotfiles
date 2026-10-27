@@ -1,10 +1,11 @@
-// statusline: the ccstatusline figures in one row, drawn in-process on the PromptHint site.
+// statusline: the ccstatusline figures in two rows, drawn in-process on the PromptHint site.
+// The first row holds the usage figures, the second the skill and the place.
 // A subscription (5-hour and weekly windows) shows the 5-hour use and the weekly
 // pace; a metered account (enterprise, no such windows) shows the session's cost
 // and what is left of the monthly spend limit instead. The engine reports no such
 // limit for a claude.ai login, so it is read from the endpoint /usage reads, at
 // most once per SPEND_TTL_MS, and only while the windows are absent.
-//   ui.render (PromptHint)            the row, then the engine's own hint line
+//   ui.render (PromptHint)            the two rows, then the engine's own hint line
 //   session.start, session.append,    refresh the snapshot, at most once per
 //   tool.call, $.clock.every          SETTLE_MS, and every TICK_MS for the clocks
 //   turn.step                         the effort of the main loop's last request
@@ -101,13 +102,12 @@ export function homeShort(cwd: string, home: string): string {
   return cwd.startsWith(`${home}/`) ? `~${cwd.slice(home.length)}` : cwd
 }
 
-/** The usage parts of the row: model, effort, context, the plan's own figures, and skill. */
-export function usageParts(s: Snapshot, skill: string | null, effort: string | null = null): Part[] {
+/** The usage parts of the first row: model, effort, context, and the plan's own figures. */
+export function usageParts(s: Snapshot, effort: string | null = null): Part[] {
   const parts: Part[] = [{ text: s.model, color: 'cyan' }]
   if (effort) parts.push({ text: `Effort ${effort}`, color: 'cyan' })
   if (s.contextPercent !== null) parts.push({ text: contextText(s) })
   parts.push(...(isSubscription(s) ? subscriptionParts(s) : meteredParts(s)))
-  if (skill) parts.push({ text: `Skill ${skill}` })
   return parts
 }
 
@@ -149,9 +149,10 @@ function monthText(spend: Spend, left: number): string {
   return `Month ${money}${left}% left`
 }
 
-/** The place parts of the row, after the usage parts: the directory, the repository's top folder, the branch and the worktree. */
-export function placeParts(s: Snapshot): Part[] {
-  const parts: Part[] = [{ text: homeShort(s.cwd, s.home) }]
+/** The parts of the second row: the last skill, the directory, the repository's host, the branch, the diff and the worktree. */
+export function placeParts(s: Snapshot, skill: string | null = null): Part[] {
+  const parts: Part[] = skill ? [{ text: `Skill ${skill}` }] : []
+  parts.push({ text: homeShort(s.cwd, s.home) })
   if (s.git) {
     const host = s.git.webUrl ? new URL(s.git.webUrl).hostname : ''
     const icon = host.includes('github') ? GIT_ICONS.github : host.includes('gitlab') ? GIT_ICONS.gitlab : GIT_ICONS.other
@@ -442,8 +443,7 @@ export const register: Register = on => {
     const [skill, effort] = await Promise.all([read($, lastSkill), read($, lastEffort)])
     const { Box, Text, Link, Button } = $.ui.resolve(e)
     const columns = Math.max(20, e.viewport?.columns ?? 120)
-    // On a narrow terminal the place parts drop first.
-    const parts = fit([...usageParts(s, skill, effort), ...placeParts(s)], columns)
+    const rows = [usageParts(s, effort), placeParts(s, skill)].map(parts => fit(parts, columns))
     const drawPart = (part: Part, i: number) => {
       const copy = part.copy
       if (copy !== undefined)
@@ -469,12 +469,14 @@ export const register: Register = on => {
     }
     return (
       <Box flexDirection="column">
-        <Box flexDirection="row">
-          {parts.flatMap((part, i) => [
-            ...(i > 0 ? [<Text key={`sep-${i}`} dimColor>{part.isJoined ? JOINER : SEPARATOR}</Text>] : []),
-            drawPart(part, i),
-          ])}
-        </Box>
+        {rows.map((parts, row) => (
+          <Box key={`row-${row}`} flexDirection="row">
+            {parts.flatMap((part, i) => [
+              ...(i > 0 ? [<Text key={`sep-${i}`} dimColor>{part.isJoined ? JOINER : SEPARATOR}</Text>] : []),
+              drawPart(part, i),
+            ])}
+          </Box>
+        ))}
         {engine}
       </Box>
     )
