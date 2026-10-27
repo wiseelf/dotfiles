@@ -22,11 +22,12 @@ If an input is missing, ask the user.
 1. Examine the target.
    - If the directory does not exist, stop and tell the user.
    - If `git -C <target-dir> rev-parse --is-inside-work-tree` succeeds, run `git -C <target-dir> status -sb`. Show the branch and the status to the user.
+   - Find the default branch: `git -C <target-dir> symbolic-ref --short refs/remotes/origin/HEAD`. If this fails, use `main`.
 2. Write the handoff document to `/tmp/<topic>/handoff-<dir-slug>.md`. The `<dir-slug>` is the target directory name in kebab-case, with no spaces. Use the template below.
    - Give the paths of files that have the context. Do not copy their content.
    - Remove secrets: tokens, passwords, keys, and decrypted values. Refer to a secret by its name or path.
    - Use absolute paths. The new session starts in a different directory.
-   - If the target is not a git repo, remove the two git rules (commit or push, new branch) from the "Do not" section.
+   - If the target is not a git repo, remove the "Start" section and the git rule (commit or push) from the "Do not" section.
 3. Start the session. The `<source-dir>` is the working directory of this session. The script uses the tmux session name that `cs` uses. If that session exists, the script adds a window to it.
 
    ```bash
@@ -55,6 +56,13 @@ Do not change these directories: <list>.
 ## Contract
 <The exact file names, keys, formats, and values that the other side expects.>
 
+## Start
+Do these steps before the tasks.
+1. Run `git status -sb`.
+2. If the working tree is clean, run `git switch <default-branch>` and `git pull --ff-only`.
+3. If the working tree has changes, do not touch them. Start a worktree from `<default-branch>` with the `EnterWorktree` tool, or with `git worktree add`.
+4. Create a new branch for the task.
+
 ## Tasks
 1. <Step.> <Order rules, for example "Do not merge before X is live.">
 
@@ -62,5 +70,4 @@ Do not change these directories: <list>.
 - Do not run commands that change live systems (`apply`, `deploy`, `sync`).
 - Do not decrypt or show secrets.
 - Do not commit or push before the user approves.
-- Do the work on a new branch.
 ```
