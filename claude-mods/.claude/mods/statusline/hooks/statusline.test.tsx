@@ -359,3 +359,41 @@ test('the row shows the effort of the main loop, not a subagent', async ($, on) 
   expect(await isDrawn('Effort high')).toBe(false)
   expect(await isDrawn('Opus 5.5')).toBe(true)
 })
+
+test('a model response refreshes the figures without a session.append hook', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  mock.env(on, { HOME: '/Users/lex' })
+  let percent = 10
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.model', () => ({ value: 'Opus 5.5' }))
+  on('session.cwd', () => ({ value: '/Users/lex' }))
+  on('session.usage', () => ({ value: { startedAt: NOW, context: { window: 200_000, percent }, rateLimits: [] } }))
+  on('process.run', () => ({ value: { exitCode: 128, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('turn.step', async function* (_$, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [] } as any
+  })
+  on('ui.render', { component: 'PromptHint' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text dimColor>? for shortcuts</Text>
+  })
+  const isDrawn = async (text: string) => {
+    const ui = await $.ui.mount({
+      plugin: 'statusline',
+      surface: 'terminal',
+      component: 'PromptHint',
+      props: { isDraft: false, isWorking: false, hint: '? for shortcuts' },
+    })
+    const found = await ui.find({ type: 'Text', text })
+    await ui.unmount()
+    return found !== undefined
+  }
+
+  await $.session.start({ cwd: '/Users/lex', surface: 'terminal', isInteractive: true })
+  await clock.advance(300)
+  expect(await isDrawn('Ctx 10%')).toBe(true)
+
+  percent = 40
+  for await (const _ of ($ as any).turn.step({ turnId: 't', index: 0, model: 'opus', messageCount: 1 }));
+  await clock.advance(300)
+  expect(await isDrawn('Ctx 40%')).toBe(true)
+})
