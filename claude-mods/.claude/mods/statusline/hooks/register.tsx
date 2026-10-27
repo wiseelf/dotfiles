@@ -6,9 +6,10 @@
 // limit for a claude.ai login, so it is read from the endpoint /usage reads, at
 // most once per SPEND_TTL_MS, and only while the windows are absent.
 //   ui.render (PromptHint)            the two rows, then the engine's own hint line
-//   session.start, session.append,    refresh the snapshot, at most once per
+//   session.start, turn.step,         refresh the snapshot, at most once per
 //   tool.call, $.clock.every          SETTLE_MS, and every TICK_MS for the clocks
-//   turn.step                         the effort of the main loop's last request
+//   turn.step                         also the effort of the main loop's last request
+// No session.append hook: a security plugin above it continues past it.
 // The figures come from $.session and start no process. Only the branch, the
 // worktree and the diff need git: one read when the directory changes, and again
 // after a Bash call or a file edit, which can change them.
@@ -369,7 +370,7 @@ async function refresh($: Engine): Promise<void> {
 /**
  * Refreshes once, SETTLE_MS after the first event of a burst. Never throws:
  * the hooks call it after `next(e)`, where a throw would fail a tool call or
- * an append that already ran.
+ * a model response that already ran.
  */
 function schedule($: Engine): void {
   if (settle) return
@@ -395,13 +396,6 @@ export const register: Register = on => {
     const result = await next(e)
     stop()
     ticker = $.clock.every(TICK_MS, () => schedule($))
-    schedule($)
-    return result
-  })
-
-  // Each row the session keeps: after an API response the usage figures are new.
-  on('session.append', async ($, e, next) => {
-    const result = await next(e)
     schedule($)
     return result
   })
@@ -433,7 +427,11 @@ export const register: Register = on => {
         // the row keeps the effort before
       }
     }
-    return yield* next(e)
+    try {
+      return yield* next(e)
+    } finally {
+      schedule($) // after each model response the usage figures are new
+    }
   })
 
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
