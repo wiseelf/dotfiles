@@ -38,10 +38,6 @@
   "disableRemoteControl": true,
   "disableWorkflows": true,
   "disableArtifact": true,
-  "statusLine": {
-    "type": "command",
-    "command": "bash $HOME/.claude/statusline-command.sh"
-  },
   "hooks": {
     "UserPromptSubmit": [
       { "hooks": [{ "type": "command", "command": "$HOME/.config/tmux/claude-state.sh working" }] }
