@@ -55,6 +55,8 @@ Before marking code complete:
 5. Verify coverage >= 80%
 ```
 
+Before you commit, run `/security-review` on the pending changes when the diff touches auth, secrets, input handling, templates, shell, or SQL.
+
 ## Common Issues to Catch
 
 ### Security
