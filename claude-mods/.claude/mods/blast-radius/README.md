@@ -8,9 +8,11 @@ The mod also holds these commands and shows what they change:
 
 | Command | What the pane shows |
 |---|---|
-| `terraform`/`tofu destroy`, `apply -destroy` | The resources in `plan -destroy`. |
-| `kubectl delete` | The resources from `kubectl get` with the same selectors. |
+| `terraform`/`tofu destroy`, `apply -destroy` | Not measured. |
+| `kubectl delete` | The resources from `kubectl get` with the same scope flags. |
 | `helm uninstall` (`delete`, `del`, `un`) | The resources in `helm get manifest`. |
+
+The preview runs before you answer, so it does not run code from the folder of the command. Thus the mod does not run `terraform plan` or the migration list (`manage.py`, `bin/rails`). The kubectl and helm previews keep only the namespace, context, selector and file flags. They remove `--server`, `--token`, `--as` and `--kubeconfig`, because these can send your credentials to a different server.
 
 A `--dry-run` (not `none`) command runs and is not held.
 

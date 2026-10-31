@@ -769,13 +769,15 @@ const KUBECTL_VALUE_FLAGS = new Set([
   "-l", "--selector", "--field-selector", "-f", "--filename", "-k", "--kustomize",
   "-o", "--output", "--grace-period", "--timeout", "--as", "--token", "--request-timeout",
 ]);
-// kubectl delete flags that kubectl get does not take, or that change its output.
-const KUBECTL_DELETE_ONLY = new Set([
-  "--grace-period", "--force", "--now", "--wait", "--cascade", "--timeout", "--dry-run",
-  "-i", "--interactive", "--raw", "-o", "--output",
+// The only flags that the preview copies from the held command. An allowlist, because the preview
+// runs before the user answers: --server, --token, --kubeconfig or --as can send credentials to an
+// attacker or run an exec plugin.
+const KUBECTL_PREVIEW_FLAGS = new Set([
+  "-n", "--namespace", "--context", "-l", "--selector", "--field-selector",
+  "-A", "--all-namespaces", "-f", "--filename", "-R", "--recursive",
 ]);
 const HELM_VALUE_FLAGS = new Set(["-n", "--namespace", "--kube-context", "--kubeconfig", "--timeout", "--cascade", "--description"]);
-const HELM_SCOPE_FLAGS = new Set(["-n", "--namespace", "--kube-context", "--kubeconfig"]);
+const HELM_PREVIEW_FLAGS = new Set(["-n", "--namespace", "--kube-context"]);
 const HELM_UNINSTALL = new Set(["uninstall", "delete", "del", "un"]);
 const KUBE_NAMESPACE_KINDS = new Set(["ns", "namespace", "namespaces"]);
 
@@ -852,10 +854,10 @@ async function measure($, risk, cwd) {
       return await measureRm($, risk, cwd);
     }
     if (risk.kind === "migrate") {
-      return await measureMigrations($, risk, cwd);
+      return notMeasured(risk, "the migration list");
     }
     if (risk.kind === "terraform-destroy") {
-      return await measureTerraform($, risk, cwd);
+      return notMeasured(risk, `${risk.tool} plan`);
     }
     if (risk.kind === "kubectl-delete") {
       return await measureKubectl($, risk, cwd);
@@ -1028,31 +1030,22 @@ async function measurePush($, risk, cwd) {
   };
 }
 
-// terraform plan refreshes state against the provider, which can take a while.
-const PLAN_TIMEOUT_MS = 180000;
 const KUBE_TIMEOUT_MS = 30000;
 
-async function measureTerraform($, risk, cwd) {
-  const chdir = flagTokens(risk.flags, (name) => name === "-chdir");
-  const inputs = flagTokens(risk.flags, (name) => TERRAFORM_VALUE_FLAGS.has(name));
-  const argv = [risk.tool, ...chdir, "plan", "-destroy", "-no-color", "-input=false", "-lock=false", ...inputs];
-  const run = await $.process.run(argv, { cwd, timeoutMs: PLAN_TIMEOUT_MS });
-  if (run.exitCode !== 0) {
-    return { summary: `${risk.label} (could not plan it)`, lines: [], note: `${risk.tool} plan -destroy failed: ${lastLine(run.stderr || run.stdout)}` };
-  }
-  const gone = [...run.stdout.matchAll(/^\s*# (\S+) will be destroyed/gm)].map((m) => m[1]);
-  const plan = run.stdout.match(/^Plan: .*$/m)?.[0] ?? "No changes.";
-  return {
-    summary: gone.length === 0 ? `${risk.label}: destroys nothing` : `destroy ${gone.length} ${gone.length === 1 ? "resource" : "resources"}`,
-    lines: gone.slice(0, LIST_MAX),
-    more: Math.max(0, gone.length - LIST_MAX),
-    note: `From ${risk.tool} plan -destroy. ${plan}`,
-  };
+// terraform plan and the migration listers run code from the folder (providers, external data,
+// manage.py, bin/rails). The agent can write that folder, so the hook does not run them.
+function notMeasured(risk, tool) {
+  return { summary: `${risk.label} (not measured)`, lines: [], note: `The hook does not run ${tool} before you answer, because it runs code from the folder.` };
+}
+
+/** The kubectl get argv that lists what a held kubectl delete removes. */
+export function kubectlPreviewArgv(risk) {
+  const scope = flagTokens(risk.flags, (name) => KUBECTL_PREVIEW_FLAGS.has(name));
+  return [risk.tool, "get", ...risk.targets, ...scope, "-o", "name"];
 }
 
 async function measureKubectl($, risk, cwd) {
-  const scope = flagTokens(risk.flags, (name) => !KUBECTL_DELETE_ONLY.has(name));
-  const argv = [risk.tool, "get", ...risk.targets, ...scope, "-o", "name"];
+  const argv = kubectlPreviewArgv(risk);
   const run = await $.process.run(argv, { cwd, timeoutMs: KUBE_TIMEOUT_MS });
   if (run.exitCode !== 0) {
     return { summary: `${risk.label} (could not list it)`, lines: [], note: `kubectl get failed: ${lastLine(run.stderr)}` };
@@ -1071,7 +1064,7 @@ async function measureHelm($, risk, cwd) {
   if (risk.releases.length === 0) {
     return { summary: "helm uninstall with no release", lines: [], note: "No release names to look up." };
   }
-  const scope = flagTokens(risk.flags, (name) => HELM_SCOPE_FLAGS.has(name));
+  const scope = flagTokens(risk.flags, (name) => HELM_PREVIEW_FLAGS.has(name));
   const gone = [];
   const missing = [];
   for (const release of risk.releases) {
@@ -1101,36 +1094,6 @@ export function manifestResources(manifest) {
 
 function lastLine(text) {
   return text.trim().split("\n").pop()?.slice(0, 200) ?? "";
-}
-
-const MIGRATION_LISTERS = {
-  django: { argv: ["python3", "manage.py", "showmigrations", "--plan"], pending: (l) => l.startsWith("[ ]"), strip: (l) => l.slice(4) },
-  alembic: { argv: ["alembic", "history", "-r", "current:head"], pending: (l) => l.includes("->"), strip: (l) => l },
-  rails: { argv: ["bin/rails", "db:migrate:status"], pending: (l) => /^\s*down\b/.test(l), strip: (l) => l.trim() },
-  prisma: { argv: ["npx", "--no-install", "prisma", "migrate", "status"], pending: (l) => /^\s{2}\S/.test(l), strip: (l) => l.trim() },
-};
-
-async function measureMigrations($, risk, cwd) {
-  const lister = MIGRATION_LISTERS[risk.tool];
-  if (lister === undefined) {
-    return { summary: "run migrations", lines: [], note: "I can't list the pending migrations for this tool, so the list is not shown." };
-  }
-  let run;
-  try {
-    run = await $.process.run(lister.argv, { cwd, timeoutMs: 20000 });
-  } catch (error) {
-    run = { exitCode: -1, stdout: "", stderr: String(error?.message ?? error) };
-  }
-  if (run.exitCode !== 0) {
-    return { summary: `run ${risk.label}`, lines: [], note: `Couldn't list pending migrations (${lister.argv.join(" ")} failed).` };
-  }
-  const pending = run.stdout.split("\n").filter(lister.pending).map(lister.strip);
-  return {
-    summary: pending.length === 0 ? `run ${risk.label}: nothing pending` : `apply ${pending.length} pending ${pending.length === 1 ? "migration" : "migrations"}`,
-    lines: pending.slice(0, LIST_MAX),
-    more: Math.max(0, pending.length - LIST_MAX),
-    note: `From ${lister.argv.join(" ")}.`,
-  };
 }
 
 function size(bytes) {
