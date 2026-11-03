@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Sends a macOS notification for a Claude Code session in tmux. A click shows the pane of that session.
-# Usage: claude-notify.sh <waiting|done> [message]. With no argument, the script removes the notification.
+# Usage: claude-notify.sh waiting [message]. With no argument, the script removes the notification.
 # claude-state.sh calls this script. It exits when Claude does not run in tmux.
 set -uo pipefail
 
 readonly TERMINAL_BUNDLE_ID="com.mitchellh.ghostty"
 readonly NOTIFIER="/opt/homebrew/bin/terminal-notifier"
+# The notification stays this long. It needs the "Alerts" style for terminal-notifier in System Settings.
+readonly DISPLAY_SECONDS=10
 
 [[ -n ${TMUX_PANE:-} && -n ${TMUX:-} && -x $NOTIFIER ]] || exit 0
 
@@ -35,15 +37,21 @@ if is_terminal_in_front && is_pane_visible; then
   exit 0
 fi
 
-case $state in
-  waiting) body=${message:-Claude needs your input} ;;
-  done) body="Finished" ;;
-  *) exit 0 ;;
-esac
+[[ $state == waiting ]] || exit 0
+body=${message:-Claude needs your input}
 
 # The click runs outside tmux, so claude-focus.sh gets the server socket.
 socket=${TMUX%%,*}
 printf -v on_click '%q %q %q' "$HOME/.config/tmux/claude-focus.sh" "$socket" "$TMUX_PANE"
 
+# The ID prevents an old timer from removing a newer notification of the same session.
+notification_id="$$-$RANDOM"
+tmux set-option -t "$TMUX_PANE" @claude_notification_id "$notification_id"
+
 "$NOTIFIER" -title "Claude · $session" -message "$body" -group "$group" -sound default \
   -execute "$on_click" >/dev/null
+
+sleep "$DISPLAY_SECONDS"
+if [[ $(tmux display-message -p -t "$TMUX_PANE" '#{@claude_notification_id}') == "$notification_id" ]]; then
+  "$NOTIFIER" -remove "$group" >/dev/null
+fi

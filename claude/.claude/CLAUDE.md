@@ -14,6 +14,10 @@
 - Semantic commits: `feat:` `fix:` `chore:` `docs:` `refactor:` `test:`.
 - Semver on PRs/releases.
 
+## Tools
+- If no MCP server gives the data or action, use a local CLI: `gh`, `glab`, `sonar`, `argocd`, `kubectl`, `aws`.
+- Before you use a CLI, run `command -v <tool>`. If the tool is missing or not authenticated, tell me.
+
 ## Code Quality
 - Clean, optimal, readable > short. No redundant code.
 - Meaningful names. Language best practices.
