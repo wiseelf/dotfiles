@@ -62,7 +62,7 @@ Each project has one tmux session with Claude Code in it. The sessions keep runn
 
 The status bar shows all sessions. `●` shows that Claude asks for permission or asks you a question. Claude Code hooks in `settings.json` set this state with `~/.config/tmux/claude-state.sh`.
 
-When Claude waits for you or finishes, macOS shows a notification (`terminal-notifier`). A click opens the Ghostty tab and the tmux pane of that session. You get no notification for the pane that is on the screen. At the first notification, allow notifications for `terminal-notifier` in System Settings. At the first click, allow it to control Ghostty.
+When Claude needs your input, macOS shows a notification (`terminal-notifier`). A click opens the Ghostty tab and the tmux pane of that session. You get no notification for the pane that is on the screen. At the first notification, allow notifications for `terminal-notifier` in System Settings. Set its style to "Alerts", so that the notification stays for 10 seconds. At the first click, allow it to control Ghostty.
 
 ## Claude Code mods
 

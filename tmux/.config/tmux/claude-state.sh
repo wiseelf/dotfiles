@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Claude Code hook. Puts the Claude state on the tmux session for the status bar and the picker.
-# It also sends a macOS notification for "waiting" and "done" (see claude-notify.sh).
+# It also sends a macOS notification for "waiting" (see claude-notify.sh).
 # Usage: claude-state.sh <working|waiting|done>. With no argument, the script removes the state.
 [[ -n ${TMUX_PANE:-} ]] || exit 0
 
@@ -13,18 +13,18 @@ else
 fi
 
 case $state in
-  waiting | done)
+  waiting)
     # The Notification hook sends JSON with a "message" field on stdin. Other callers can send nothing.
     message=""
-    if [[ $state == waiting && ! -t 0 ]]; then
+    if [[ ! -t 0 ]]; then
       read -r -t 1 -d '' input || true
       message=$(jq -r '.message // empty' <<<"${input:-}" 2>/dev/null)
     fi
     notify_args=("$state" "$message")
     ;;
   *)
-    # The user replied or the session ended. Remove an open notification, if there is one.
-    [[ $previous == waiting || $previous == done ]] || exit 0
+    # Claude continues, finished, or the session ended. Remove an open notification, if there is one.
+    [[ $previous == waiting ]] || exit 0
     notify_args=()
     ;;
 esac
