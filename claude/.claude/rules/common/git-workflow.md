@@ -1,19 +1,4 @@
-# Git Workflow
+# Git workflow
 
-## Commit Message Format
-```
-<type>: <description>
-
-<optional body>
-```
-
-Types: feat, fix, refactor, docs, test, chore, perf, ci
-
-## Pull Request Workflow
-
-When creating PRs:
-1. Analyze full commit history (not just latest commit)
-2. Use `git diff [base-branch]...HEAD` to see all changes
-3. Draft comprehensive PR summary
-4. Include test plan with TODOs
-5. Push with `-u` flag if new branch
+- Commit format: `<type>: <description>`. Types: feat, fix, refactor, docs, test, chore, perf, ci.
+- To create, watch, or finish a PR or MR, use the `mr` skill. It runs the `commit` and `pull-request` skills.
