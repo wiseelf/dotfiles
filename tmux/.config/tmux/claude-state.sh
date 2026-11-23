@@ -6,6 +6,9 @@
 
 state=${1:-}
 previous=$(tmux display-message -p -t "$TMUX_PANE" '#{@claude_state}')
+# PostToolUse runs this after each tool call. Skip tmux when nothing changed.
+# A repeated "waiting" continues: each permission prompt can have a new message.
+[[ $state == "$previous" && $state != waiting ]] && exit 0
 if [[ -n $state ]]; then
   tmux set-option -t "$TMUX_PANE" @claude_state "$state"
 else
