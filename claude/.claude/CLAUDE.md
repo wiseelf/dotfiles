@@ -17,6 +17,7 @@
 ## Tools
 - If no MCP server gives the data or action, use a local CLI: `gh`, `glab`, `sonar`, `argocd`, `kubectl`, `aws`.
 - Before you use a CLI, run `command -v <tool>`. If the tool is missing or not authenticated, tell me.
+- Do not use `sleep` to wait. Start a background task, or use `Monitor`.
 
 ## Code Quality
 - Clean, optimal, readable > short. No redundant code.
