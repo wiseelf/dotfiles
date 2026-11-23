@@ -1,0 +1,6 @@
+{
+  "description": "Block Secrets: a prompt.submit hook that drops a prompt with a token in it.",
+  "modules": [
+    "./register.ts"
+  ]
+}

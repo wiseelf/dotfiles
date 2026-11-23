@@ -1,6 +1,6 @@
 ---
 name: pull-request
-description: Use when the user asks to open, create, draft, or update a GitHub pull request or a GitLab merge request, or to write a PR or MR title or description.
+description: Use when the user asks to write or update the title or description of a GitHub pull request or a GitLab merge request. The mr skill calls it to create a PR/MR.
 user-invocable: true
 allowed-tools: Bash, Read
 ---

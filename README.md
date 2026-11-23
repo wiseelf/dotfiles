@@ -52,8 +52,10 @@ Each project has one tmux session with Claude Code in it. The sessions keep runn
 
 | Do this | Press |
 |---------|-------|
-| Go to the session of the current folder. A new session starts Claude. | `cs` |
-| Pick a session from `$HOME` or a new terminal | `cs` |
+| Go to the session of the current folder. A new session starts Claude. In `~`, the session is `home`. | `cs` |
+| Start one more session in the current folder (`<name>-2`, `<name>-3`, …) | `cs -n` |
+| Go to a named session of the current folder (`<name>-<label>`) | `cs <label>` |
+| Pick a session | `cs -p` |
 | Pick a session (popup with preview) | `Cmd+j` or `Ctrl+a f` |
 | Previous / next session | `Cmd+Shift+←` / `Cmd+Shift+→` or `Ctrl+a ←` / `Ctrl+a →` |
 | Leave the session, keep it running | `Ctrl+a d` |

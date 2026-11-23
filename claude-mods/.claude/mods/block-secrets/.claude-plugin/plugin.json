@@ -1,0 +1,5 @@
+{
+  "name": "block-secrets",
+  "version": "0.1.0",
+  "description": "Drops a prompt that contains a known token shape, before it enters the session."
+}
