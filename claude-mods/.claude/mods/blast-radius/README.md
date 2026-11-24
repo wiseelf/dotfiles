@@ -44,6 +44,33 @@ The pane does not show the whole command, so it does not scroll. It shows the to
 
 When the pane waits for an answer, the mod sets the tmux state of the session to `waiting` with `~/.config/tmux/claude-state.sh`. The status bar then shows `●`. The pane is not a permission prompt, so the `Notification` hook does not fire for it.
 
+## Decision log
+
+Each held command adds one JSON line to `~/.claude/blast-radius.log`. If `XDG_STATE_HOME` is set, the file is `$XDG_STATE_HOME/claude/blast-radius.log`. The mod creates the file with mode `0600`.
+
+```json
+{"ts":"2026-11-24T08:00:00.000Z","decision":"proceed","kind":"rm","label":"rm -rf","cwd":"/repo","segment":"rm -rf build","targets":["/repo/build"],"command":"make && rm -rf build"}
+```
+
+- `decision` is `proceed`, `cancel`, `timeout`, `interrupted` or `error`.
+- `targets` is the list from the pane (paths, resources, releases, branches), or `null`.
+- The log removes heredoc bodies. The masking is best effort: a quoted value with spaces can keep its end. It masks secret flags (`--token`, `--password`, `--api-key`), `NAME=value` assignments, URL credentials and `Authorization` headers. Then it cuts each text at 1000 characters.
+- If the write fails, the mod shows a toast. The decision does not change.
+
+Count the decisions:
+
+```bash
+log=~/.claude/blast-radius.log
+jq -r .decision "$log" | sort | uniq -c
+jq -r '[.kind, .decision] | @tsv' "$log" | sort | uniq -c | sort -rn
+```
+
+Find the commands that you allow most, to add allow rules:
+
+```bash
+jq -r 'select(.decision == "proceed") | .segment' "$log" | sort | uniq -c | sort -rn | head -20
+```
+
 ## Load
 
 `settings.json` sets `CLAUDE_CODE_PLUGIN_DIRS` to `~/.claude/mods`. Stow links the `mods` folder there. Each session loads the mod and reloads it when a file changes.
