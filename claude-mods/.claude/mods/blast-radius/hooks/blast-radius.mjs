@@ -42,6 +42,7 @@ export function register(on) {
     // the check and the claim, so two waiting calls can't both get through.
     while (held !== null) {
       if (next.signal.aborted) {
+        await logDecision($, { decision: "interrupted", risk, cwd: sessionCwd, command });
         return { deny: "Blast Radius held this command and did not run it: the turn was interrupted. Do not retry it unless the user asks you to." };
       }
       await $.process.run(["sleep", POLL_SECONDS], { timeoutMs: 5000 });
@@ -100,6 +101,7 @@ export function register(on) {
       }
       $.ui.invalidate("ui.render");
       await setAttentionState($, "working");
+      await logDecision($, { decision, risk, cwd: mine.cwd ?? sessionCwd, command: mine.command });
     }
 
     if (decision === "proceed") {
@@ -146,6 +148,83 @@ async function setAttentionState($, state) {
     await $.process.run(["bash", "-c", ATTENTION_SCRIPT, "blast-radius", state], { timeoutMs: 5000 });
   } catch {
     // no tmux marker
+  }
+}
+
+// ---- Decision log -----------------------------------------------------------
+//
+// Each held command adds one JSON line to $XDG_STATE_HOME/claude/blast-radius.log,
+// or to ~/.claude/blast-radius.log when XDG_STATE_HOME is not set. The file is 0600.
+// A write failure shows a toast. It does not change the decision.
+
+const LOG_COMMAND_CHARS_MAX = 1000;
+const LOG_TARGETS_MAX = 20;
+const LOG_TIMEOUT_MS = 2000;
+const LOG_FAILED_TOAST = "Blast Radius: couldn't write the decision log";
+const MASK = "***";
+
+// The record is read from stdin, so its text is never shell source.
+const LOG_SCRIPT = `
+umask 077
+if [[ -n $XDG_STATE_HOME ]]; then dir="$XDG_STATE_HOME/claude"; else dir="$HOME/.claude"; fi
+log="$dir/blast-radius.log"
+mkdir -p "$dir" && cat >> "$log" && chmod 600 "$log"
+`;
+
+// A shell word: double-quoted, single-quoted, or bare.
+const WORD = String.raw`"[^"]*"|'[^']*'|[^\s;&|)'"]+`;
+const SECRET_PATTERNS = [
+  // user:password@ or token@ in a URL
+  [/(:\/\/)[^\s/@]+@/g, `$1${MASK}@`],
+  // Authorization: Bearer xyz
+  [/(authorization:\s*(?:bearer\s+|basic\s+|token\s+)?)[^\s"']+/gi, `$1${MASK}`],
+  // --token x, --password=x, --api-key x, -client-secret x
+  [new RegExp(`(^|\\s)(--?[\\w-]*(?:token|passw(?:or)?d|secret|api[-_]?key|access[-_]?key|private[-_]?key|credentials?)[\\w-]*)(=|\\s+)(?:${WORD})`, "gi"), `$1$2$3${MASK}`],
+  // NAME=value: an env assignment, a terraform -var, a query parameter
+  [new RegExp(`(^|[\\s;&|('"=?])([A-Za-z_]\\w*)=(?:${WORD})?`, "g"), `$1$2=${MASK}`],
+];
+
+/** The text with heredoc bodies removed and secret-looking values replaced by ***. */
+export function maskSecrets(text) {
+  return SECRET_PATTERNS.reduce((masked, [pattern, replacement]) => masked.replace(pattern, replacement), stripHeredocs(text));
+}
+
+function logText(text) {
+  return clip(maskSecrets(text), LOG_COMMAND_CHARS_MAX);
+}
+
+/** The log record of one held command. at is the time in milliseconds. */
+export function decisionRecord({ at, decision, risk, cwd, command }) {
+  const targets = riskTargets(risk);
+  return {
+    ts: new Date(at).toISOString(),
+    decision,
+    kind: risk.kind,
+    label: risk.label,
+    cwd,
+    segment: risk.segment === undefined ? null : logText(risk.segment),
+    targets: targets === null ? null : targets.slice(0, LOG_TARGETS_MAX).map(logText),
+    command: logText(command),
+  };
+}
+
+/** Appends the record of one held command to the log. Never throws. */
+async function logDecision($, fields) {
+  let isWritten = false;
+  try {
+    const line = JSON.stringify(decisionRecord({ ...fields, at: await $.clock.now() }));
+    const run = await $.process.run(["bash", "-c", LOG_SCRIPT, "blast-radius"], { stdin: `${line}\n`, timeoutMs: LOG_TIMEOUT_MS });
+    isWritten = run.exitCode === 0;
+  } catch {
+    // reported below
+  }
+  if (isWritten) {
+    return;
+  }
+  try {
+    $.ui.toast(LOG_FAILED_TOAST);
+  } catch {
+    // the session has no UI left
   }
 }
 

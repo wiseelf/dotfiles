@@ -1,5 +1,5 @@
 import { describe, expect, test } from "claude-code/testing";
-import { classify, classifyAll, kubectlPreviewArgv, manifestResources, riskTargets, stripHeredocs, targetsIgnoreDir } from "../hooks/blast-radius.mjs";
+import { classify, classifyAll, decisionRecord, kubectlPreviewArgv, manifestResources, maskSecrets, riskTargets, stripHeredocs, targetsIgnoreDir } from "../hooks/blast-radius.mjs";
 
 describe("classifyAll", () => {
   test("returns every risky segment, so an allowed rm can't hide a later one", () => {
@@ -233,5 +233,65 @@ describe("rm paths with shell variables", () => {
 
   test("keeps a path with no variables as it is", () => {
     expect(rm("rm -rf /tmp/x 'a b'")).toEqual({ targets: ["/tmp/x", "a b"], unresolved: [] });
+  });
+});
+
+describe("maskSecrets", () => {
+  test("masks the value of a secret flag, with = or a space", () => {
+    expect(maskSecrets("kubectl delete pod x --token=t1")).toBe("kubectl delete pod x --token=***");
+    expect(maskSecrets("kubectl delete pod x --token t1 -n prod")).toBe("kubectl delete pod x --token *** -n prod");
+    expect(maskSecrets("cli --password 'a b' --api-key=k --client-secret \"c d\"")).toBe("cli --password *** --api-key=*** --client-secret ***");
+  });
+
+  test("masks env assignments", () => {
+    expect(maskSecrets("PGPASSWORD='a b' rails db:migrate")).toBe("PGPASSWORD=*** rails db:migrate");
+    expect(maskSecrets("export TOKEN=abc; rm -rf build")).toBe("export TOKEN=***; rm -rf build");
+  });
+
+  test("masks terraform -var values", () => {
+    expect(maskSecrets("terraform destroy -var 'db_password=x'")).toBe("terraform destroy -var 'db_password=***'");
+    expect(maskSecrets("terraform destroy -var=token=x")).toBe("terraform destroy -var=token=***");
+  });
+
+  test("masks credentials in a URL and an Authorization header", () => {
+    expect(maskSecrets("git push -f https://user:tok@github.com/o/r main")).toBe("git push -f https://***@github.com/o/r main");
+    expect(maskSecrets("curl -H 'Authorization: Bearer abc.def' x")).toBe("curl -H 'Authorization: Bearer ***' x");
+  });
+
+  test("removes heredoc bodies", () => {
+    expect(maskSecrets(["cat > k <<'EOF'", "secret-key-material", "EOF", "rm -rf a"].join("\n"))).toBe("cat > k <<'EOF'\nrm -rf a");
+  });
+
+  test("keeps a command with no secrets as it is", () => {
+    expect(maskSecrets("git push --force origin main")).toBe("git push --force origin main");
+  });
+});
+
+describe("decisionRecord", () => {
+  test("records the decision, the kind, the segment and the targets", () => {
+    const command = "make && API_TOKEN=x rm -rf build dist";
+    const risk = classify(command)!;
+    expect(decisionRecord({ at: 0, decision: "proceed", risk, cwd: "/repo", command })).toEqual({
+      ts: "1970-01-01T00:00:00.000Z",
+      decision: "proceed",
+      kind: "rm",
+      label: "rm -rf",
+      cwd: "/repo",
+      segment: "API_TOKEN=*** rm -rf build dist",
+      targets: ["build", "dist"],
+      command: "make && API_TOKEN=*** rm -rf build dist",
+    });
+  });
+
+  test("records null targets for a kind with no targets", () => {
+    const risk = classify("git reset --hard")!;
+    expect(decisionRecord({ at: 0, decision: "cancel", risk, cwd: "/repo", command: "git reset --hard" }).targets).toBe(null);
+  });
+
+  test("cuts a long command after masking, so a cut secret is not kept", () => {
+    const command = `rm -rf ${"a".repeat(995)} --token=secretvalue`;
+    const record = decisionRecord({ at: 0, decision: "timeout", risk: classify(command)!, cwd: "/", command });
+    expect(record.command.length).toBe(1001);
+    expect(record.command.includes("secret")).toBe(false);
   });
 });
