@@ -3,10 +3,10 @@ import { describe, expect, mock, test } from "claude-code/testing";
 const OK = { exitCode: 0, stdout: "", stderr: "" };
 const LOG_FAILED_TOAST = "Blast Radius: couldn't write the decision log";
 
-type Setup = { button: "proceed" | "cancel"; isWriteFailing: boolean };
+type Setup = { button: "proceed" | "cancel"; isWriteFailing: boolean; command?: string };
 
-/** Holds `git reset --hard`, presses a button, and returns the hook result, the logged lines and the toasts. */
-async function hold($: any, on: any, { button, isWriteFailing }: Setup) {
+/** Holds the command (`git reset --hard` by default), presses a button, and returns the hook result, the logged lines and the toasts. */
+async function hold($: any, on: any, { button, isWriteFailing, command = "git reset --hard" }: Setup) {
   const records: string[] = [];
   const toasts: string[] = [];
   let isPressed = false;
@@ -32,7 +32,7 @@ async function hold($: any, on: any, { button, isWriteFailing }: Setup) {
     return { value: OK };
   });
   on("tool.call", () => ({ result: "ran" }));
-  const result = await $.tool.call({ tool: "Bash", command: "git reset --hard" });
+  const result = await $.tool.call({ tool: "Bash", command });
   return { result, records: records.map((r) => JSON.parse(r)), toasts };
 }
 
@@ -51,5 +51,11 @@ describe("decision log", () => {
     expect(result.deny).toContain("the user pressed Cancel");
     expect(records.map((r) => r.decision)).toEqual(["cancel"]);
     expect(toasts).not.toContain(LOG_FAILED_TOAST);
+  });
+
+  test("logs a path with an unknown variable as written, not joined to the folder", async ($, on) => {
+    const { records } = await hold($, on, { button: "cancel", isWriteFailing: false, command: 'rm -rf "$UNKNOWN_DIR"' });
+
+    expect(records.map((r) => r.targets)).toEqual([["$UNKNOWN_DIR (unresolved)"]]);
   });
 });

@@ -177,6 +177,20 @@ describe("riskTargets", () => {
   });
 });
 
+describe("subshells", () => {
+  test("a $( ) at the end of a segment does not close a subshell", () => {
+    expect(classify("(cd sub && d=$(mktemp -d)) > log; rm -rf build")?.dir).toBe(null);
+    expect(classify("(cd sub && d=$(mktemp -d) && rm -rf build)")?.dir).toBe("sub");
+  });
+
+  test("a quoted or escaped ( does not keep a subshell open", () => {
+    expect(classify('(cd /tmp && echo "(") ; rm -rf *')?.dir).toBe(null);
+    expect(classify("(cd /tmp && echo '(') ; rm -rf *")?.dir).toBe(null);
+    expect(classify("(cd /tmp && echo \\() ; rm -rf *")?.dir).toBe(null);
+    expect(classify('(cd /tmp && echo "$(printf ")")") ; rm -rf *')?.dir).toBe(null);
+  });
+});
+
 describe("targetsIgnoreDir", () => {
   test("is true when each rm target is absolute, so an unknown cd folder does not matter", () => {
     const risk = classify("for d in a b; do cd $d; done; rm -rf /tmp/cstest ~/scratch")!;
@@ -229,6 +243,74 @@ describe("rm paths with shell variables", () => {
     expect(rm("eval x; d=a; rm -rf /tmp/$d").unresolved).toEqual(["/tmp/$d"]);
     expect(rm("case $x in a) d=../etc;; esac; rm -rf /tmp/$d", { d: "a" }).unresolved).toEqual(["/tmp/$d"]);
     expect(rm("d=a rm -rf /tmp/$d").unresolved).toEqual(["/tmp/$d"]);
+  });
+
+  test("puts in a new path in $TMPDIR for $(mktemp)", () => {
+    const env = { TMPDIR: "/var/folders/x/T/" };
+    const inTmp = "/var/folders/x/T/mktemp.XXXXXXXXXX";
+    expect(rm('d=$(mktemp -d); rm -rf "$d"', env)).toEqual({ targets: [inTmp], unresolved: [] });
+    expect(rm('export P=p TF_DATA_DIR=$(mktemp -d) && terraform init; rm -rf "$TF_DATA_DIR" /tmp/x', env)).toEqual({ targets: [inTmp, "/tmp/x"], unresolved: [] });
+    expect(rm('d="$(mktemp -dt scratch)"; rm -rf $d', env).targets).toEqual([inTmp]);
+    expect(rm("d=$(mktemp -q -t s); rm -f $d", env).targets).toEqual([inTmp]);
+  });
+
+  test("marks a $(mktemp) path unresolved when it can be outside $TMPDIR", () => {
+    const env = { TMPDIR: "/var/folders/x/T/" };
+    expect(rm("d=$(mktemp -d -p /); rm -rf $d", env).unresolved).toEqual(["$d"]);
+    expect(rm("d=$(mktemp --tmpdir=/ -d); rm -rf $d", env).unresolved).toEqual(["$d"]);
+    expect(rm("d=$(mktemp x.XXX); rm -rf $d", env).unresolved).toEqual(["$d"]);
+    expect(rm("d=$(mktemp -t ../x); rm -rf $d", env).unresolved).toEqual(["$d"]);
+    expect(rm("d=$(mktemp -d); rm -rf $d").unresolved).toEqual(["$d"]);
+    expect(rm("cd x && d=$(mktemp -d); rm -rf $d", env).unresolved).toEqual(["$d"]);
+  });
+
+  test("marks a path below a $(mktemp) folder unresolved, because a glob or .. can't be checked", () => {
+    const env = { TMPDIR: "/var/folders/x/T/" };
+    expect(rm('d=$(mktemp -d); rm -rf "$d"/*', env).unresolved).toEqual(["$d/*"]);
+    expect(rm('d=$(mktemp -d); rm -rf "$d"/../../*', env).unresolved).toEqual(["$d/../../*"]);
+    expect(rm('d=$(mktemp -d); rm -rf "$d/sub"', env).unresolved).toEqual(["$d/sub"]);
+  });
+
+  test("marks a $(mktemp) path unresolved when an empty $d leaves a real path", () => {
+    const env = { TMPDIR: "/var/folders/x/T/", HOME: "/Users/u" };
+    expect(rm('export TMPDIR=/../../../tmp/zz; d=$(mktemp -d -t A); rm -rf "$HOME/work$d"', env).unresolved).toEqual(["$HOME/work$d"]);
+    expect(rm('d=$(mktemp -d); rm -rf "$HOME/work$d"', env).unresolved).toEqual(["$HOME/work$d"]);
+    expect(rm("d=x$(mktemp -d); rm -rf $d", env).unresolved).toEqual(["$d"]);
+  });
+
+  test("marks a $(mktemp) path unresolved when the line can redefine mktemp", () => {
+    const env = { TMPDIR: "/var/folders/x/T/" };
+    expect(rm('mktemp(){ echo $HOME;}; d=$(mktemp -d); rm -rf "$d"', env).unresolved).toEqual(["$d"]);
+    expect(rm('mktemp () { echo $HOME; }; d=$(mktemp -d); rm -rf "$d"', env).unresolved).toEqual(["$d"]);
+    expect(rm('PATH=/tmp/x:$PATH; d=$(mktemp -d); rm -rf "$d"', env).unresolved).toEqual(["$d"]);
+    expect(rm(["shopt -s expand_aliases", "alias mktemp='echo /home'", 'd=$(mktemp -d); rm -rf "$d"'].join("\n"), env).unresolved).toEqual(["$d"]);
+  });
+
+  test("marks a $(mktemp) path unresolved when eval hides behind a prefix or quotes", () => {
+    const env = { TMPDIR: "/var/folders/x/T/" };
+    expect(rm("command eval 'mktemp''(){ echo /;}'; d=$(mktemp -d); rm -rf \"$d\"", env).unresolved).toEqual(["$d"]);
+    expect(rm("x=1 eval 'mktemp''(){ echo /;}'; d=$(mktemp -d); rm -rf \"$d\"", env).unresolved).toEqual(["$d"]);
+    expect(rm("e''val 'mktemp(){ echo /;}'; d=$(mktemp -d); rm -rf \"$d\"", env).unresolved).toEqual(["$d"]);
+    expect(rm("d=/tmp/x; command eval 'd=/'; rm -rf \"$d\"").unresolved).toEqual(["$d"]);
+  });
+
+  test("marks each variable unresolved when the line sets IFS", () => {
+    expect(rm("IFS=T; d=$(mktemp -d); rm -rf $d", { TMPDIR: "/var/folders/x/T/" }).unresolved).toEqual(["$d"]);
+    expect(rm("IFS=a; d=/tmp/a/home/x; rm -rf $d").unresolved).toEqual(["$d"]);
+  });
+
+  test("uses only a TMPDIR from the environment that is absolute with no ..", () => {
+    expect(rm("TMPDIR=/tmp; d=$(mktemp -d); rm -rf $d", { TMPDIR: "/var/folders/x/T/" }).unresolved).toEqual(["$d"]);
+    expect(rm("d=$(mktemp -d); rm -rf $d", { TMPDIR: "/tmp/../Users/u" }).unresolved).toEqual(["$d"]);
+    expect(rm("d=$(mktemp -d); rm -rf $d", { TMPDIR: "tmp" }).unresolved).toEqual(["$d"]);
+  });
+
+  test("keeps a $(...) with spaces as one word", () => {
+    expect(rm("rm -rf $(echo a b)").unresolved).toEqual(["$(echo a b)"]);
+  });
+
+  test("keeps the closing brace of ${d}", () => {
+    expect(rm("d=a; rm -rf /tmp/${d}").targets).toEqual(["/tmp/a"]);
   });
 
   test("keeps a path with no variables as it is", () => {

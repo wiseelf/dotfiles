@@ -19,6 +19,7 @@ A `--dry-run` (not `none`) command runs and is not held.
 An `rm -r`/`rm -f` runs and is not held if each path is one of these:
 
 - A path inside `/tmp` (not `/tmp` itself).
+- A path inside `$TMPDIR` (not `$TMPDIR` itself). On macOS, this is `/var/folders/…/T`. The mod ignores a `$TMPDIR` that is `/` or a parent of `$HOME`.
 - A linked worktree inside the main worktree of its repo (for example `.worktrees/feature`). Files inside a worktree are still held.
 
 If each path is absolute or starts with `~`, the mod ignores an earlier `cd` on the line. So `cd $d; rm -rf /tmp/x` is not held because of `$d`.
@@ -28,7 +29,8 @@ The mod checks the real path, not the text:
 - It puts in each value that a variable can have on the line: `d=…`, `export d=…`, `for d in …`. A variable with no assignment on the line gets its value from the environment.
 - An assignment that possibly does not run (in `if`/`while`/`case`, after `&&`/`||`, in a pipe or in `( )`) keeps the old value too. Each value must pass.
 - It resolves the deepest folder that exists, symlinks included. Then it applies `.` and `..` to the rest. So `/tmp/$d` with `d=../Users/x` is `/private/Users/x` and is held.
-- A value it can't know (`$(…)`, `` `…` ``, `read`, `eval`, `d=x rm …`) makes the path unresolved. An unresolved `rm` is always held.
+- `$(mktemp)` with only `-d`, `-q` and `-t PREFIX` is a new path inside `$TMPDIR`. So `d=$(mktemp -d); …; rm -rf "$d"` is not held. The `rm` target must be the variable alone. Any text around it (`"$d"/*`, `"$d/sub"`, `"$HOME/x$d"`) makes the path unresolved, because a failed `mktemp` leaves `$d` empty. A template, `-p`, `--tmpdir=DIR`, or a `TMPDIR` set on the line also makes the path unresolved. If the assignment possibly does not run (`cd x && d=$(mktemp -d)`), the path stays unresolved too.
+- A value it can't know (another `$(…)`, `` `…` ``, `read`, `eval`, `d=x rm …`) makes the path unresolved. An unresolved `rm` is always held.
 
 The pane shows the real paths, and the note shows the paths as written.
 
@@ -53,7 +55,7 @@ Each held command adds one JSON line to `~/.claude/blast-radius.log`. If `XDG_ST
 ```
 
 - `decision` is `proceed`, `cancel`, `timeout`, `interrupted` or `error`.
-- `targets` is the list from the pane (paths, resources, releases, branches), or `null`.
+- `targets` is the list from the pane (paths, resources, releases, branches), or `null`. An unresolved path shows as written, with ` (unresolved)` after it.
 - The log removes heredoc bodies. The masking is best effort: a quoted value with spaces can keep its end. It masks secret flags (`--token`, `--password`, `--api-key`), `NAME=value` assignments, URL credentials and `Authorization` headers. Then it cuts each text at 1000 characters.
 - If the write fails, the mod shows a toast. The decision does not change.
 

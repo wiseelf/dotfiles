@@ -257,7 +257,7 @@ export function classifyAll(command, env = {}) {
   let dir = null; // where a `cd` earlier on the line moved to; null means the session folder
   const scopes = []; // dir to restore when a ( subshell ) closes
   const pushed = []; // pushd stack, for popd
-  const shell = newShellState(env);
+  const shell = newShellState(env, stripHeredocs(command));
   // Odd indexes are the separators, so each segment knows what is around it.
   const parts = stripHeredocs(command).split(/(&&|\|\||;|\||\n)/);
   for (let i = 0; i < parts.length; i += 2) {
@@ -265,7 +265,7 @@ export function classifyAll(command, env = {}) {
     const opens = (raw.match(/^\s*\(+/)?.[0].trim().length) ?? 0;
     // Trailing redirects and & don't hide a closing ) : `(cd sub && make) > log`.
     const tail = raw.replace(/(?:\s*(?:\d*>>?|&>>?|<)\s*\S+|\s*&)+\s*$/, "");
-    const closes = (tail.match(/\)+\s*$/)?.[0].trim().length) ?? 0;
+    const closes = subshellCloses(tail);
     for (let k = 0; k < opens; k += 1) {
       scopes.push(dir);
     }
@@ -310,7 +310,7 @@ const PREFIXES = new Set(["command", "exec", "env", "nohup", "time", "then", "do
 /** One segment: a risk, { cd } for a folder change, or null. */
 function classifySegment(segment, dir, pushed, shell) {
   {
-    const words = tokenize(segment.trim().replace(/^[({]+\s*/, "").replace(/\s*[)}]+$/, ""));
+    const words = tokenize(stripGrouping(segment));
     while (words.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) {
       words.shift(); // leading VAR=value
     }
@@ -544,8 +544,13 @@ is_inner_worktree() {
   done < <(git -C "$(dirname -- "$1")" worktree list --porcelain 2>/dev/null)
   return 1
 }
+# The temp folder of the user (on macOS, /var/folders/…/T). Not / and not a parent of $HOME.
+tmp_dir=$(canon "\${TMPDIR:-/nonexistent}") || tmp_dir=""
+home_dir=$(canon "$HOME") || home_dir=""
+case "$home_dir/" in "\${tmp_dir%/}/"*) tmp_dir="";; esac
 allowed() {
   case "$1" in /tmp/?*|/private/tmp/?*) return 0;; esac
+  [[ -n "$tmp_dir" && "$1" == "$tmp_dir"/?* ]] && return 0
   is_inner_worktree "$1"
 }
 (( $# > 0 )) || { echo held; exit 1; }
@@ -624,12 +629,91 @@ async function isAllowed($, risk, sessionCwd) {
       const branch = await currentPushBranch($, cwd);
       return { isAllowed: branch !== "" && branch !== "HEAD" && !isProtected(branch), paths: [] };
     }
-    const check = await checkRm($, risk, cwd);
-    // A path with a variable the mod can't know is never allowed.
-    return { isAllowed: check.isAllowed && risk.unresolved.length === 0, paths: check.paths };
+    // A path with a variable the mod can't know is never allowed, and is shown as written.
+    const resolved = risk.targets.filter((t) => !risk.unresolved.includes(t));
+    const check = resolved.length > 0 ? await checkRm($, { ...risk, targets: resolved }, cwd) : { isAllowed: false, paths: [] };
+    const unresolved = risk.unresolved.map((t) => `${t} ${UNRESOLVED_MARK}`);
+    return { isAllowed: check.isAllowed && unresolved.length === 0, paths: [...check.paths, ...unresolved] };
   } catch {
     return held; // anything unexpected holds the command
   }
+}
+
+/** The index of the quote that closes the quote at index start, or the text length. */
+function quoteEnd(text, start) {
+  const quote = text[start];
+  for (let i = start + 1; i < text.length; i += 1) {
+    if (quote === '"' && text[i] === "\\") {
+      i += 1;
+    } else if (text[i] === quote) {
+      return i;
+    }
+  }
+  return text.length;
+}
+
+/** The index after the ) that closes the $( at index start, or the text length. Quoted parens do not count. */
+function substitutionEnd(text, start) {
+  let depth = 0;
+  for (let i = start + 1; i < text.length; i += 1) {
+    if (text[i] === "\\") {
+      i += 1;
+    } else if (text[i] === "'" || text[i] === '"') {
+      i = quoteEnd(text, i);
+    } else if (text[i] === "(") {
+      depth += 1;
+    } else if (text[i] === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return i + 1;
+      }
+    }
+  }
+  return text.length;
+}
+
+/**
+ * How many open and close characters are shell syntax: not quoted, not escaped,
+ * and not inside a $( ). So echo "(" and \( do not count.
+ */
+function countUnquoted(text, open, close) {
+  const counts = { open: 0, close: 0 };
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "\\") {
+      i += 1;
+    } else if (ch === "'" || ch === '"') {
+      i = quoteEnd(text, i);
+    } else if (ch === "$" && text[i + 1] === "(") {
+      i = substitutionEnd(text, i) - 1;
+    } else if (ch === open) {
+      counts.open += 1;
+    } else if (ch === close) {
+      counts.close += 1;
+    }
+  }
+  return counts;
+}
+
+/** The ) characters at the end of a segment that close a ( subshell ), not a $( ) or a quoted ). */
+function subshellCloses(tail) {
+  const body = tail.trim().replace(/^[(\s]+/, "");
+  const trailing = body.match(/\)+\s*$/)?.[0].trim().length ?? 0;
+  const { open, close } = countUnquoted(body, "(", ")");
+  return Math.min(trailing, Math.max(0, close - open));
+}
+
+/** The segment without the ( { that open a group and the ) } that close it. A $( ) or ${ } stays. */
+function stripGrouping(segment) {
+  let text = segment.trim().replace(/^[({]+\s*/, "");
+  while (/[)}]$/.test(text)) {
+    const counts = text.endsWith(")") ? countUnquoted(text, "(", ")") : countUnquoted(text, "{", "}");
+    if (counts.close <= counts.open) {
+      break;
+    }
+    text = text.slice(0, -1).trimEnd();
+  }
+  return text;
 }
 
 /**
@@ -650,6 +734,10 @@ function tokenize(text) {
       if (ch === '"') quote = null;
       else if (ch === "\\" && i + 1 < text.length && '"\\$`'.includes(text[i + 1])) word += text[++i];
       else word += ch;
+    } else if (ch === "$" && text[i + 1] === "(") {
+      const end = substitutionEnd(text, i);
+      word = (word ?? "") + text.slice(i, end);
+      i = end - 1;
     } else if (/\s/.test(ch)) {
       if (word !== null) words.push(word);
       word = null;
@@ -677,6 +765,8 @@ function tokenize(text) {
 // path unresolved, and an rm with an unresolved path is always held.
 
 const MAX_PATHS = 50;
+// Added after a path that has a variable the mod can't know, in the pane and the log.
+const UNRESOLVED_MARK = "(unresolved)";
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const ASSIGN_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
 const VAR_REF_RE = /^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/;
@@ -685,12 +775,33 @@ const BLOCK_ENDS = new Set(["fi", "done", "esac"]);
 const BLOCK_WORDS = new Set(["then", "do", "else", "elif", "!"]);
 const DECLARES = new Set(["export", "local", "readonly", "declare", "typeset"]);
 const READS_INTO = new Set(["read", "mapfile", "readarray", "getopts", "unset"]);
+// `$(mktemp)` with only -d, -q and -t PREFIX: a new name directly in $TMPDIR. A bare
+// TEMPLATE, -p and --tmpdir=DIR can put the name in another folder, so they stay unknown.
+const MKTEMP_RE = /^\$\(\s*mktemp(?:\s+(?:-[dq]+|-[dq]*t\s+[^\s/()$`]+))*\s*\)/;
+// A stand-in for the random name that mktemp makes. It is one path part, never . or ..
+const MKTEMP_NAME = "mktemp.XXXXXXXXXX";
+// A word that is one variable and nothing more: $d or ${d}.
+const BARE_VAR_RE = /^\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)$/;
 // After one of these, any variable can have any value.
 const OPAQUE = new Set(["eval", "source", ".", "let", "function"]);
 
+// A line that matches can change what an unquoted $d splits into (IFS) or define a
+// shell function, so any variable on the line can have any value.
+const OPAQUE_LINE_RE = /\bIFS\b|\b[A-Za-z_][\w-]*\s*\(\s*\)/;
+// Words that can make $(mktemp) run something other than the real mktemp.
+const MKTEMP_REDEFINERS = new Set(["alias", "hash", "enable", "shopt", "function", "builtin"]);
+// A line that matches can make $(mktemp) run something other than the real mktemp.
+const MKTEMP_REDEFINED_RE = /\bmktemp\s*\(|\b(?:alias|hash|enable|shopt|function|builtin)\b|\b(?:PATH|BASH_ENV|ENV)\b/;
+
 /** Variable state of one command line. A Set holds the possible values; null means unknown. */
-function newShellState(env) {
-  return { vars: new Map(), env, isOpaque: false, depth: 0 };
+function newShellState(env, command = "") {
+  return {
+    vars: new Map(),
+    env,
+    isOpaque: OPAQUE_LINE_RE.test(command),
+    isMktempTrusted: !MKTEMP_REDEFINED_RE.test(command),
+    depth: 0,
+  };
 }
 
 function valuesOf(state, name) {
@@ -727,6 +838,16 @@ function expandWord(word, state) {
       i += 1;
       continue;
     }
+    const mktemp = MKTEMP_RE.exec(word.slice(i));
+    if (mktemp !== null) {
+      const path = mktempPath(state);
+      if (path === null) {
+        return null;
+      }
+      results = results.map((r) => r + path);
+      i += mktemp[0].length;
+      continue;
+    }
     const ref = VAR_REF_RE.exec(word.slice(i));
     const values = ref === null ? null : valuesOf(state, ref[1] ?? ref[2]);
     if (values === null) {
@@ -755,7 +876,14 @@ function expandWords(words, state) {
 
 /** Updates the variable state with the assignments of one segment. */
 function trackVariables(segment, state, isConditional) {
-  const words = tokenize(segment.trim().replace(/^[({]+\s*/, "").replace(/\s*[)}]+$/, ""));
+  const words = tokenize(stripGrouping(segment));
+  // Quotes are removed, so e''val and mktemp''() are found, and a prefix (command eval) does not hide a word.
+  if (words.some((w) => OPAQUE.has(w) || w.includes("()"))) {
+    state.isOpaque = true;
+  }
+  if (words.some((w) => MKTEMP_REDEFINERS.has(w) || /^(?:PATH|BASH_ENV|ENV)=/.test(w) || w.startsWith("mktemp("))) {
+    state.isMktempTrusted = false;
+  }
   while (words.length > 0 && BLOCK_WORDS.has(words[0])) {
     words.shift();
   }
@@ -816,6 +944,27 @@ function trackVariables(segment, state, isConditional) {
   }
 }
 
+/**
+ * True for a $(mktemp) path that is not the bare variable alone: "$d"/*, "$d/sub", "$HOME/x$d".
+ * If mktemp fails, $d is empty, so the text around it is the real path: "$d"/* is /*.
+ * A bare "$d" is then "", and rm removes nothing.
+ */
+function isUnsafeMktempPath(target, path, state) {
+  return path.includes(MKTEMP_NAME) && !(BARE_VAR_RE.test(target) && path === mktempPath(state));
+}
+
+/**
+ * The stand-in path of a new $(mktemp) name, or null. TMPDIR must come from the
+ * environment: a TMPDIR set on the line can point anywhere. The line must not redefine mktemp. TMPDIR must be absolute with no "..".
+ */
+function mktempPath(state) {
+  const tmpDir = state.env.TMPDIR;
+  if (state.isOpaque || !state.isMktempTrusted || state.vars.has("TMPDIR") || typeof tmpDir !== "string" || !tmpDir.startsWith("/") || tmpDir.split("/").includes("..")) {
+    return null;
+  }
+  return `${tmpDir.replace(/\/+$/, "")}/${MKTEMP_NAME}`;
+}
+
 /** rm targets with variables put in: { targets, unresolved }. */
 function expandTargets(targets, state) {
   const expanded = [];
@@ -826,7 +975,7 @@ function expandTargets(targets, state) {
       continue;
     }
     const values = expandWord(target, state);
-    if (values === null) {
+    if (values === null || [...values].some((v) => isUnsafeMktempPath(target, v, state))) {
       unresolved.push(target);
       expanded.push(target);
     } else {
