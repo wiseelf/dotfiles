@@ -92,7 +92,6 @@ machine, run manually after `install.sh`:
 claude plugin marketplace add mattpocock/skills
 claude plugin marketplace add antonbabenko/agent-plugins
 
-claude plugin install code-simplifier@claude-plugins-official
 claude plugin install security-guidance@claude-plugins-official
 claude plugin install superpowers@claude-plugins-official
 claude plugin install mattpocock-skills@mattpocock
