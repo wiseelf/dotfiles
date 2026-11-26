@@ -48,7 +48,6 @@
   },
   "enabledPlugins": {
     "security-guidance@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": false,
     "mattpocock-skills@mattpocock": true
   },
   "extraKnownMarketplaces": {
