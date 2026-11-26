@@ -2,6 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import type { Snapshot } from '../types'
 import {
+  contextColor,
   countdown,
   dollars,
   fit,
@@ -85,6 +86,8 @@ test('the row parts hold each figure and drop the parts that do not fit', () => 
   expect(usageParts(snap({ sevenDay: { percent: 70, resetsAt: NOW + 3.5 * 24 * HOUR } })).find(p => p.text.startsWith('Pace'))?.color).toBe('#cc0000')
   expect(usageParts(snap(), 'high').map(p => p.text).slice(0, 3)).toEqual(['Opus 5.5', 'Effort high', 'Ctx 120k/200k 60%'])
   expect(usageParts(snap({ contextTokens: null })).map(p => p.text)[1]).toBe('Ctx 60%')
+  expect(usageParts(snap()).find(p => p.text.startsWith('Ctx'))?.color).toBe(undefined)
+  expect(usageParts(snap({ contextTokens: 310_000 })).find(p => p.text.startsWith('Ctx'))?.color).toBe('red')
   expect(usageParts(snap({ contextPercent: null, fiveHour: null, sevenDay: null, costUsd: 0 })).map(p => p.text)).toEqual(['Opus 5.5'])
   const wt = placeParts(snap({ git: { root: 'b', top: '/r/h/.claude/worktrees/b', branch: 'wt-b', worktree: 'b', webUrl: 'https://gitlab.example.com/g/p', added: 12, removed: 3 } }))
   expect(wt).toEqual([
@@ -396,4 +399,12 @@ test('a model response refreshes the figures without a session.append hook', asy
   for await (const _ of ($ as any).turn.step({ turnId: 't', index: 0, model: 'opus', messageCount: 1 }));
   await clock.advance(300)
   expect(await isDrawn('Ctx 40%')).toBe(true)
+})
+
+test('contextColor: none below 200k, yellow to 300k, red above', () => {
+  expect(contextColor(null)).toBe(undefined)
+  expect(contextColor(199_999)).toBe(undefined)
+  expect(contextColor(200_000)).toBe('yellow')
+  expect(contextColor(300_000)).toBe('yellow')
+  expect(contextColor(300_001)).toBe('red')
 })

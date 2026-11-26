@@ -67,6 +67,7 @@ Run this after the user says that the PR/MR is merged.
 5. Delete the local branch: `git branch -d <branch>`. If `-d` refuses (for example after a squash merge), and step 1 showed the merge, use `-D`.
 6. Ticket tracker and post-merge extras: do the steps of the overlay. Show each change to the user before you send it.
 7. If the user gave an ordered list of MRs, show the list with each item marked done or open, and name the next one.
+8. Suggest `/clear` before the next task. The next task does not need the context of this one.
 
 ## status
 

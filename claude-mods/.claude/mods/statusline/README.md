@@ -9,7 +9,7 @@ Parts are joined by ` | `, in this order.
 
 Row 1:
 
-- Model, `Effort <level>` (the main loop's last request), `Ctx 120k/200k 60%`.
+- Model, `Effort <level>` (the main loop's last request), `Ctx 120k/200k 60%`. The context is yellow from 200k tokens and red above 300k: split the session with `/clear`.
 - Plan figures:
   - Subscription: `5h N%` and its reset (only above 90%), `Pace →N%` weekly projection (green under, red over, grey even).
   - Metered (enterprise): `Session $x.xx`, `Month $used/$limit N% left` (reset at 20% left or less). The limit comes from

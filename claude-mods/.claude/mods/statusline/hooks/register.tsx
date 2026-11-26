@@ -37,6 +37,9 @@ const PACE_COLORS = { under: '#4e9a06', over: '#cc0000', even: '#888a85' } as co
 // Nerd Font glyphs: the repository's host, a link to it in the browser.
 const GIT_ICONS = { github: '\uf09b', gitlab: '\uf296', other: '\ue702' } as const
 const WORKTREE_ICON = '𖠰'
+// The context fill that warns: plan a split at the first, split the session at the second.
+const CONTEXT_WARN_TOKENS = 200_000
+const CONTEXT_ALERT_TOKENS = 300_000
 const FIVE_HOUR_MIN_PERCENT = 90 // the 5-hour use and its reset show only above this use
 const SPEND_RESET_MAX_LEFT = 20 // the spend limit's reset shows only at or below this much left
 const SPEND_TTL_MS = 5 * 60_000
@@ -91,6 +94,12 @@ function contextText(s: Snapshot): string {
   return `Ctx ${fill}${s.contextPercent}%`
 }
 
+/** Yellow from CONTEXT_WARN_TOKENS, red above CONTEXT_ALERT_TOKENS, else no color. */
+export function contextColor(count: number | null): Color | undefined {
+  if (count === null || count < CONTEXT_WARN_TOKENS) return undefined
+  return count > CONTEXT_ALERT_TOKENS ? 'red' : 'yellow'
+}
+
 /** Whether the snapshot is a subscription's: it has a 5-hour or a weekly window. */
 export function isSubscription(s: Snapshot): boolean {
   return s.fiveHour !== null || s.sevenDay !== null
@@ -107,7 +116,10 @@ export function homeShort(cwd: string, home: string): string {
 export function usageParts(s: Snapshot, effort: string | null = null): Part[] {
   const parts: Part[] = [{ text: s.model, color: 'cyan' }]
   if (effort) parts.push({ text: `Effort ${effort}`, color: 'cyan' })
-  if (s.contextPercent !== null) parts.push({ text: contextText(s) })
+  if (s.contextPercent !== null) {
+    const color = contextColor(s.contextTokens)
+    parts.push({ text: contextText(s), ...(color ? { color } : {}) })
+  }
   parts.push(...(isSubscription(s) ? subscriptionParts(s) : meteredParts(s)))
   return parts
 }
