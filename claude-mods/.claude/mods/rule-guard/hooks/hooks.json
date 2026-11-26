@@ -1,0 +1,6 @@
+{
+  "description": "Rule Guard: a tool.call hook that denies Bash commands that break the setup rules.",
+  "modules": [
+    "./register.ts"
+  ]
+}

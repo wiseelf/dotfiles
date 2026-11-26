@@ -1,0 +1,5 @@
+{
+  "name": "rule-guard",
+  "version": "0.1.0",
+  "description": "Denies Bash commands that break the setup rules: commit or push on the default branch, in-place sed/perl edits, and sleep waits."
+}
