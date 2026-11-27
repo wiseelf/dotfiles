@@ -16,6 +16,8 @@ const REASONS = {
     'do not use sleep to wait for an event. Use a watch command (gh pr checks --watch, kubectl wait), a background task with .timeout(), or Monitor. A sleep of 5 s or less inside a retry loop is allowed.',
   'edit-in-place':
     'do not edit files in place with sed -i or perl -i. Read the file, then use the Edit tool.',
+  'repl-sleep':
+    'do not use sleep() in the REPL to wait for an event. Give the command a .timeout() so that it moves to the background, start it without await and end the script, or use Monitor. A sleep() of 5000 ms or less inside a retry loop is allowed.',
 } as const
 
 export type Finding = keyof typeof REASONS
@@ -342,6 +344,96 @@ export function refspecTarget(refspec: string, current: string | null): string |
   return branch
 }
 
+// ---- REPL: sleep() calls in the JavaScript of a script ----
+
+const MAX_SLEEP_MS = MAX_SLEEP_SECONDS * 1000
+const REPL_SLEEP_WORD = /\bsleep\s*\(/
+const REPL_SLEEP_CALL = /(?<![\w$.])sleep\s*\(/g
+
+type JsLexer = { js: string; i: number; out: string; depth: number; templates: number[] }
+
+/** JavaScript with comments and the text of strings and template literals blanked. The `${…}` parts of a template stay. */
+export function codeOnly(js: string): string {
+  const lx: JsLexer = { js, i: 0, out: '', depth: 0, templates: [] }
+  while (lx.i < js.length) {
+    jsStep(lx)
+  }
+  return lx.out
+}
+
+function jsStep(lx: JsLexer): void {
+  const c = lx.js[lx.i] ?? ''
+  const pair = lx.js.slice(lx.i, lx.i + 2)
+  if (pair === '//') return skipTo(lx, '\n', 0)
+  if (pair === '/*') return skipTo(lx, '*/', 2)
+  if (c === "'" || c === '"') return skipQuote(lx, c)
+  if (c === '`') return readTemplateText(lx)
+  if (c === '}' && lx.templates.at(-1) === lx.depth) {
+    lx.templates.pop()
+    return readTemplateText(lx)
+  }
+  if (c === '{') lx.depth += 1
+  if (c === '}') lx.depth -= 1
+  lx.out += c
+  lx.i += 1
+}
+
+function skipTo(lx: JsLexer, end: string, endLength: number): void {
+  const at = lx.js.indexOf(end, lx.i + 2)
+  lx.i = at === -1 ? lx.js.length : at + endLength
+  lx.out += ' '
+}
+
+function skipQuote(lx: JsLexer, quote: string): void {
+  let i = lx.i + 1
+  while (i < lx.js.length && lx.js[i] !== quote && lx.js[i] !== '\n') {
+    i += lx.js[i] === '\\' ? 2 : 1
+  }
+  lx.i = i + 1
+  lx.out += ' '
+}
+
+/** Skips template text from a backtick or the `}` that ends an expression, up to the closing backtick or the next `${`. */
+function readTemplateText(lx: JsLexer): void {
+  let i = lx.i + 1
+  while (i < lx.js.length && lx.js[i] !== '`' && lx.js.slice(i, i + 2) !== '${') {
+    i += lx.js[i] === '\\' ? 2 : 1
+  }
+  if (lx.js[i] === '`') {
+    lx.i = i + 1
+  } else {
+    lx.templates.push(lx.depth)
+    lx.i = i + 2
+  }
+  lx.out += ' '
+}
+
+/** The text between the parenthesis before `start` and its closing parenthesis. */
+function callArgument(js: string, start: number): string {
+  let depth = 1
+  for (let i = start; i < js.length; i += 1) {
+    if (js[i] === '(') depth += 1
+    if (js[i] === ')') depth -= 1
+    if (depth === 0) return js.slice(start, i)
+  }
+  return js.slice(start)
+}
+
+function isShortSleepMs(argument: string): boolean {
+  const literal = argument.trim()
+  if (!/^\d[\d_]*$/.test(literal)) return false
+  return Number(literal.replace(/_/g, '')) <= MAX_SLEEP_MS
+}
+
+/** True when the code calls sleep() with more than the limit, or with a value that is not a number literal. */
+export function hasLongReplSleep(code: string): boolean {
+  const js = codeOnly(code)
+  for (const match of js.matchAll(REPL_SLEEP_CALL)) {
+    if (!isShortSleepMs(callArgument(js, match.index + match[0].length))) return true
+  }
+  return false
+}
+
 // ---- Repo state, through $.process.run ----
 
 type RepoState = { defaultBranch: string; current: string | null }
@@ -423,5 +515,14 @@ export const register: Register = on => {
     return next(e)
   }).catch(($, e, next) =>
     next.called ? next(e) : { deny: `${$.plugin.name}: the guard failed, so the command did not run.` },
+  )
+
+  on('tool.call', { tool: 'REPL' }, async ($, e, next) => {
+    const code = String(e.code ?? '')
+    if (!REPL_SLEEP_WORD.test(code)) return next(e)
+    if (hasLongReplSleep(code)) return { deny: `${$.plugin.name}: ${REASONS['repl-sleep']}` }
+    return next(e)
+  }).catch(($, e, next) =>
+    next.called ? next(e) : { deny: `${$.plugin.name}: the guard failed, so the script did not run.` },
   )
 }
