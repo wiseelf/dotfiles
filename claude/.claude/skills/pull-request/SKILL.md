@@ -9,7 +9,7 @@ allowed-tools: Bash, Read
 
 The description tells a reviewer why the change exists, what it does, and how it was verified. Every claim is a concrete fact: names, timestamps, counts, command output.
 
-Write all prose in ASD-STE100. Read `~/.claude/output-styles/ste100.md` before you write. `example.md` in this directory shows the target quality.
+Write all prose in ASD-STE100. `example.md` in this directory shows the target quality.
 
 ## 1. Collect the facts
 
@@ -62,7 +62,7 @@ The CLI does not apply the template when you give a body file. Merge the templat
 
 Publish without approval. The user reviews the text in the PR/MR.
 
-1. If the branch has no upstream, push it with `git push -u origin <branch>`.
+1. Push the branch: `git push -u origin <branch>`.
 2. Create the PR/MR with a body file, not an inline string:
    - GitHub: `gh pr create --base <base> --title "<title>" --body-file <file>`
    - GitLab: `glab mr create --target-branch <base> --title "<title>" --description "$(cat <file>)"`

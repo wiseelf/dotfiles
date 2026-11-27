@@ -32,11 +32,10 @@ Each integration is optional. If an integration is not detected, skip its steps.
 ## create
 
 1. Run the `commit` skill for the pending changes.
-2. If the branch has no upstream, run `git push -u origin <branch>`. Otherwise, run `git push`.
-3. Run the `pull-request` skill. If a PR/MR for the branch exists, update it. Put the quick actions of the overlay (reviewers, assignee) at the end of the description, so that they apply at creation.
-4. If the PR/MR existed before, post the quick actions as a note: `glab mr note <id> -m "<quick actions>"`.
-5. Ticket tracker: add the PR/MR URL as a remote link on the ticket. Do not change the ticket status.
-6. The last line of the reply must be the PR/MR URL.
+2. Run the `pull-request` skill. If a PR/MR for the branch exists, update it. Put the quick actions of the overlay (reviewers, assignee) at the end of the description, so that they apply at creation.
+3. If the PR/MR existed before, post the quick actions as a note: `glab mr note <id> -m "<quick actions>"`.
+4. Ticket tracker: add the PR/MR URL as a remote link on the ticket. Do not change the ticket status.
+5. The last line of the reply must be the PR/MR URL.
 
 ## watch [id|url]
 
