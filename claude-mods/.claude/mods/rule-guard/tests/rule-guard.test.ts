@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { analyze, refspecTarget, splitCommands } from '../hooks/register'
+import { analyze, hasLongReplSleep, refspecTarget, splitCommands } from '../hooks/register'
 
 const findings = (command: string) => analyze(command).findings
 
@@ -171,5 +171,46 @@ describe('guard', () => {
     on('tool.call', () => ({ result: 'ran' }))
     const result = await $.tool.call({ tool: 'Bash', command: 'git commit -m x' })
     expect(result.deny).toContain('the guard failed')
+  })
+})
+
+describe('REPL sleep', () => {
+  test('denies a long sleep(), a computed value, and an unknown value', () => {
+    const denied = [
+      'await sleep(6000)',
+      'await sleep (60_000)',
+      'await sleep(60 * 1000)',
+      'await sleep(ms)',
+      'await sleep(Math.min(1000, wait))',
+      'const x = `${await sleep(9000)}`',
+      "await sleep(2000)\nawait sleep(30000)",
+    ]
+    for (const code of denied) {
+      expect([code, hasLongReplSleep(code)]).toEqual([code, true])
+    }
+  })
+
+  test('allows a short sleep(), and sleep( in strings, comments and template text', () => {
+    const allowed = [
+      'for (let i = 0; i < 3; i += 1) { if (await ok()) break; await sleep(2000) }',
+      'await sleep(5_000)',
+      "const s = 'sleep(60000)'",
+      'const s = "sleep(60000)"',
+      '// await sleep(60000)',
+      '/* await sleep(60000) */',
+      'await $`sleep 10`',
+      'const t = `text sleep(9000) ${x} more sleep(9000)`',
+      'time.sleep(60)',
+    ]
+    for (const code of allowed) {
+      expect([code, hasLongReplSleep(code)]).toEqual([code, false])
+    }
+  })
+
+  test('denies a REPL script with a long sleep() and runs a short one', async ($, on) => {
+    on('tool.call', () => ({ result: 'ran' }))
+    const denied = await $.tool.call({ tool: 'REPL', code: 'await sleep(60000)' })
+    expect(String(denied.deny)).toContain('do not use sleep() in the REPL')
+    expect(await $.tool.call({ tool: 'REPL', code: 'await sleep(2000)' })).toEqual({ result: 'ran' })
   })
 })
